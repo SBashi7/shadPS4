@@ -1109,8 +1109,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                               reinterpret_cast<const u32*>(header) -
                                   reinterpret_cast<const u32*>(base_addr),
                               fmt::ptr(wait_addr), u32(wait_reg_mem->function.Value()),
-                              wait_reg_mem->reference.Value(), wait_reg_mem->mask.Value(),
-                              wait_reg_mem->poll_interval.Value());
+                              wait_reg_mem->ref, wait_reg_mem->mask, wait_reg_mem->poll_interval);
                 }
                 // Optimization: VO label waits are special because the emulator
                 // will write to the label when presentation is finished. So if
