@@ -2082,8 +2082,15 @@ int PS4_SYSV_ABI sceGnmSqttWaitForEvent() {
 static inline s32 PatchFlipRequest(u32* cmdbuf, u32 size, u32 vo_handle, u32 buf_idx, u32 flip_mode,
                                    s64 flip_arg, void* unk) {
     // check for `prepareFlip` packet
+    u32* orig_cmdbuf = cmdbuf;
     cmdbuf += size - 64;
     ASSERT_MSG(cmdbuf[0] == 0xc03e1000, "Can't find `prepareFlip` packet");
+
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_ENTER cmdbuf_orig={:p} size={} offset_from_orig={}",
+              fmt::ptr(orig_cmdbuf), size, cmdbuf - orig_cmdbuf);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_0 = 0x{:08x}", cmdbuf[0]);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_5 = 0x{:08x}", cmdbuf[5]);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_6 = 0x{:08x}", cmdbuf[6]);
 
     std::array<u32, 7> backup{};
     std::memcpy(backup.data(), cmdbuf, backup.size() * sizeof(decltype(backup)::value_type));
@@ -2160,6 +2167,11 @@ static inline s32 PatchFlipRequest(u32* cmdbuf, u32 size, u32 vo_handle, u32 buf
         }
     }
 
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_0 = 0x{:08x}", cmdbuf[0]);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_5 = 0x{:08x}", cmdbuf[5]);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_6 = 0x{:08x}", cmdbuf[6]);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_EXPECTED_NOP = 0xC0391000");
+
     return ORBIS_OK;
 }
 
@@ -2183,6 +2195,10 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
 
     auto* cmdbuf = dcb_gpu_addrs[count - 1];
     const auto size_dw = dcb_sizes_in_bytes[count - 1] / 4;
+
+    LOG_ERROR(Lib_GnmDriver,
+              "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
+              count - 1, count, size_dw, fmt::ptr(cmdbuf));
 
     const s32 patch_result =
         PatchFlipRequest(cmdbuf, size_dw, vo_handle, buf_idx, flip_mode, flip_arg, nullptr /*unk*/);

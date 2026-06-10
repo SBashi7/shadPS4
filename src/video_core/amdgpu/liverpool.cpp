@@ -447,7 +447,10 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             switch (opcode) {
             case PM4ItOpcode::Nop: {
                 const auto* nop = reinterpret_cast<const PM4CmdNop*>(header);
-                if (nop->header.count.Value() == 0) {
+                const u32 nop_count = nop->header.count.Value();
+                LOG_ERROR(Lib_GnmDriver, "KNACK_NOP_SEEN count={} payload0=0x{:08x}", nop_count,
+                          nop_count > 0 ? nop->data_block[0] : 0);
+                if (nop_count == 0) {
                     break;
                 }
 
@@ -1472,6 +1475,15 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
             LOG_ERROR(Lib_GnmDriver,
                       "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}", n,
                       dcb.size(), ccb.size());
+            // Log tail area where flip patch Nop should be (size-64 offset)
+            if (dcb.size() >= 64) {
+                const size_t flip_offset = dcb.size() - 64;
+                LOG_ERROR(Lib_GnmDriver,
+                          "KNACK_COPY_DCB_FLIP_TAIL #{} dcb[{}]=0x{:08x} dcb[{}]=0x{:08x} "
+                          "dcb[{}]=0x{:08x}",
+                          n, flip_offset, dcb[flip_offset], flip_offset + 5, dcb[flip_offset + 5],
+                          flip_offset + 6, dcb[flip_offset + 6]);
+            }
         }
     }
 
