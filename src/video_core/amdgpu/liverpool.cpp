@@ -37,18 +37,12 @@ static constexpr u32 KNACK_DIAG_SUMMARY_INTERVAL = 100;
 // KNACK per-packet trace
 static std::atomic<u32> knack_submit_index{0};
 
-// KNACK flip metadata for fallback scan
-struct KnackFlipMeta {
-    u32 submit_id = 0;
-    u32 flip_id = 0;
-    u32 buf_idx = 0;
-    u32 vo_handle = 0;
-    u32 dcb_size = 0;
-    uintptr_t label_addr = 0;
-    bool is_submit_and_flip = false;
-};
-static constexpr u32 KNACK_FLIP_META_MAX = 16;
-KnackFlipMeta knack_flip_meta[KNACK_FLIP_META_MAX];
+// KNACK flip metadata for fallback scan (separate arrays for external access)
+u32 knack_flip_meta_submit_id[16]{};
+u32 knack_flip_meta_flip_id[16]{};
+u32 knack_flip_meta_buf_idx[16]{};
+u32 knack_flip_meta_dcb_size[16]{};
+uintptr_t knack_flip_meta_label_addr[16]{};
 std::atomic<u32> knack_flip_meta_count{0};
 struct PacketTraceEntry {
     u32 packet_index = 0;
@@ -336,18 +330,24 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
     // KNACK: run fallback PatchedFlip scan BEFORE processing (in case WaitRegMem blocks later)
     // Look up flip metadata for this submit
-    KnackFlipMeta* flip_meta_early = nullptr;
-    for (u32 i = 0; i < knack_flip_meta_count.load() && i < KNACK_FLIP_META_MAX; ++i) {
-        if (knack_flip_meta[i].submit_id == this_submit) {
-            flip_meta_early = &knack_flip_meta[i];
+    u32 flip_buf_idx = 0;
+    u32 flip_flip_id = 0;
+    uintptr_t flip_label_addr = 0;
+    bool has_flip_meta = false;
+    for (u32 i = 0; i < knack_flip_meta_count.load() && i < 16; ++i) {
+        if (knack_flip_meta_submit_id[i] == this_submit) {
+            flip_flip_id = knack_flip_meta_flip_id[i];
+            flip_buf_idx = knack_flip_meta_buf_idx[i];
+            flip_label_addr = knack_flip_meta_label_addr[i];
+            has_flip_meta = true;
             break;
         }
     }
-    if (flip_meta_early) {
+    if (has_flip_meta) {
         LOG_ERROR(Lib_GnmDriver,
                   "KNACK_FLIP_META_PROCESS submit={} flip_id={} buf={} label_addr={:p}",
-                  this_submit, flip_meta_early->flip_id, flip_meta_early->buf_idx,
-                  fmt::ptr(reinterpret_cast<void*>(flip_meta_early->label_addr)));
+                  this_submit, flip_flip_id, flip_buf_idx,
+                  fmt::ptr(reinterpret_cast<void*>(flip_label_addr)));
     }
     if (initial_dcb_size >= 64) {
         LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_BEGIN submit={} dcb_size={}", this_submit,

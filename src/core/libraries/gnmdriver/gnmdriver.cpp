@@ -2203,18 +2203,13 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
               "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
               count - 1, count, size_dw, fmt::ptr(cmdbuf));
 
-    // Register flip metadata for fallback scan
+    // Register flip metadata for fallback scan (access liverpool extern arrays directly)
     {
-        struct KnackFlipMeta {
-            u32 submit_id = 0;
-            u32 flip_id = 0;
-            u32 buf_idx = 0;
-            u32 vo_handle = 0;
-            u32 dcb_size = 0;
-            uintptr_t label_addr = 0;
-            bool is_submit_and_flip = false;
-        };
-        extern KnackFlipMeta knack_flip_meta[16];
+        extern u32 knack_flip_meta_submit_id[16];
+        extern u32 knack_flip_meta_flip_id[16];
+        extern u32 knack_flip_meta_buf_idx[16];
+        extern u32 knack_flip_meta_dcb_size[16];
+        extern uintptr_t knack_flip_meta_label_addr[16];
         extern std::atomic<u32> knack_flip_meta_count;
         extern std::atomic<u32> knack_submit_index;
 
@@ -2224,14 +2219,11 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
 
         const u32 idx = knack_flip_meta_count.fetch_add(1);
         if (idx < 16) {
-            auto& m = knack_flip_meta[idx];
-            m.submit_id = knack_submit_index.load();
-            m.flip_id = fid;
-            m.buf_idx = buf_idx;
-            m.vo_handle = vo_handle;
-            m.dcb_size = size_dw;
-            m.label_addr = label_addr;
-            m.is_submit_and_flip = true;
+            knack_flip_meta_submit_id[idx] = knack_submit_index.load();
+            knack_flip_meta_flip_id[idx] = fid;
+            knack_flip_meta_buf_idx[idx] = buf_idx;
+            knack_flip_meta_dcb_size[idx] = size_dw;
+            knack_flip_meta_label_addr[idx] = label_addr;
         }
 
         LOG_ERROR(Lib_GnmDriver,
