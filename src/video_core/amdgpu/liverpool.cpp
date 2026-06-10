@@ -25,13 +25,13 @@
 namespace AmdGpu {
 
 // KNACK: import flip metadata from gnmdriver (global ::Libraries::GnmDriver namespace)
-using ::knack_flip_meta_buf_idx;
-using ::knack_flip_meta_count;
-using ::knack_flip_meta_dcb_size;
-using ::knack_flip_meta_flip_id;
-using ::knack_flip_meta_label_addr;
-using ::knack_flip_meta_submit_id;
-using ::knack_flip_meta_submit_index;
+using ::Libraries::GnmDriver::knack_flip_meta_buf_idx;
+using ::Libraries::GnmDriver::knack_flip_meta_count;
+using ::Libraries::GnmDriver::knack_flip_meta_dcb_size;
+using ::Libraries::GnmDriver::knack_flip_meta_flip_id;
+using ::Libraries::GnmDriver::knack_flip_meta_label_addr;
+using ::Libraries::GnmDriver::knack_flip_meta_submit_id;
+using ::Libraries::GnmDriver::knack_flip_meta_submit_index;
 
 static const char* dcb_task_name{"DCB_TASK"};
 static const char* ccb_task_name{"CCB_TASK"};
