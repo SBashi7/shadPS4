@@ -85,10 +85,13 @@ static void ResetSubmissionLock(Platform::InterruptId irq) {
 
 static void WaitGpuIdle() {
     HLE_TRACE;
-    LOG_ERROR(Lib_GnmDriver, "KNACK_WAIT_GPU_IDLE_ENTER");
+    LOG_ERROR(Lib_GnmDriver, "KNACK_WAITGPU_ENTER lock_value={}", submission_lock);
     std::unique_lock lock{m_submission};
+    auto start = std::chrono::steady_clock::now();
     cv_lock.wait(lock, [] { return submission_lock == 0; });
-    LOG_ERROR(Lib_GnmDriver, "KNACK_WAIT_GPU_IDLE_EXIT");
+    auto elapsed = std::chrono::steady_clock::now() - start;
+    LOG_ERROR(Lib_GnmDriver, "KNACK_WAITGPU_EXIT lock_value={} waited_ms={}", submission_lock,
+              std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
 // Write a special ending NOP packet with N DWs data block

@@ -316,6 +316,9 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     const bool trace_enabled = this_submit < 5;
     constexpr u32 TRACE_MAX_PACKETS = 1000;
 
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_ENTER submit={} dcb_size={}", this_submit,
+              initial_dcb_size);
+
     // Dump first 128 dwords for trace-enabled submits
     if (trace_enabled) {
         const size_t head_n = std::min<size_t>(dcb.size(), 128);
@@ -485,6 +488,14 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     if (zero_count >= check_n / 2) {
                         LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD_SKIP_TAIL zeros={}/{}",
                                   zero_count, check_n - 2);
+                        LOG_ERROR(
+                            Lib_GnmDriver,
+                            "KNACK_PROCESSGRAPHICS_EARLY_STOP submit={} reason=overflow_guard "
+                            "offset={} rem={} header=0x{:08x}",
+                            this_submit,
+                            reinterpret_cast<const u32*>(header) -
+                                reinterpret_cast<const u32*>(base_addr),
+                            dcb.size(), header->raw);
                         dcb = {};
                         break;
                     }
@@ -1155,7 +1166,9 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
     // KNACK: fallback PatchedFlip scan for submits where parser drifted past the marker
     const bool was_signaled = knack_flip_signaled.exchange(false);
-    if (trace_enabled && !was_signaled && initial_dcb_size >= 64) {
+    if (!was_signaled && initial_dcb_size >= 64) {
+        LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_BEGIN submit={} dcb_size={}", this_submit,
+                  initial_dcb_size);
         const u32* scan = initial_dcb_data;
         const size_t total = initial_dcb_size;
         bool found = false;
@@ -1177,7 +1190,11 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         } else {
             LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_NOT_FOUND submit={}", this_submit);
         }
+    } else if (was_signaled) {
+        LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_ALREADY_SIGNALED submit={}", this_submit);
     }
+
+    LOG_ERROR(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_EXIT submit={}", this_submit);
 
     FIBER_EXIT;
 }
@@ -1534,7 +1551,7 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
     if (n < 5) {
         LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}",
                   copy_enabled ? "TRUE" : "FALSE");
-        LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMIT_GFX_CALLED #{} dcb_size={} ccb_size={}", n,
+        LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMITGFX_ENTER submit_id={} dcb_size={} ccb_size={}", n,
                   dcb.size(), ccb.size());
     }
 
