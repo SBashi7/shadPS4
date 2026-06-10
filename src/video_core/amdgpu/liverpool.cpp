@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <boost/preprocessor/stringize.hpp>
+#include <atomic>
+#include <thread>
 
 #include "common/assert.h"
 #include "common/config.h"
@@ -24,6 +26,12 @@ namespace AmdGpu {
 
 static const char* dcb_task_name{"DCB_TASK"};
 static const char* ccb_task_name{"CCB_TASK"};
+
+// KNACK PM4 diagnostic rate limiting
+static std::atomic<u32> knack_pm4_type0_count{0};
+static std::atomic<u32> knack_nextpacket_overflow_count{0};
+static constexpr u32 KNACK_DIAG_MAX_FULL_DUMPS = 10;
+static constexpr u32 KNACK_DIAG_SUMMARY_INTERVAL = 100;
 
 #define MAX_NAMES 56
 static_assert(Liverpool::NumComputeRings <= MAX_NAMES);
@@ -55,11 +63,27 @@ std::array<u8, 48_KB> Liverpool::ConstantEngine::constants_heap;
 
 static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset) {
     if (offset > span.size()) {
-        LOG_ERROR(
-            Lib_GnmDriver,
-            ": packet length exceeds remaining submission size. Packet dword count={}, remaining "
-            "submission dwords={}",
-            offset, span.size());
+        const u32 count = knack_nextpacket_overflow_count.fetch_add(1);
+        const bool full_dump = count < KNACK_DIAG_MAX_FULL_DUMPS;
+        const bool summary = (count % KNACK_DIAG_SUMMARY_INTERVAL) == 0;
+
+        if (full_dump) {
+            // Dump current packet header and surrounding context
+            const u32* data = span.data();
+            const size_t remaining = span.size();
+
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW #{}", count);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REQUESTED_DWORDS = {}", offset);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REMAINING_DWORDS = {}", remaining);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_OFFSET = {} dwords from span start", 0);
+            if (remaining > 0) {
+                LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", data[0]);
+            }
+            // Dump up to 8 previous dwords (they're already past, show what we can)
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_STOPPING_CURRENT_BUFFER");
+        } else if (summary) {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW summary: {} total occurrences", count);
+        }
         // Return empty subspan so check for next packet bails out
         return {};
     }
@@ -248,10 +272,65 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         switch (type) {
         default:
             continue;
-        case 0:
-            LOG_ERROR(Lib_GnmDriver, "Unsupported PM4 type 0");
+        case 0: {
+            const u32 count = knack_pm4_type0_count.fetch_add(1);
+            const bool full_dump = count < KNACK_DIAG_MAX_FULL_DUMPS;
+            const bool summary = (count % KNACK_DIAG_SUMMARY_INTERVAL) == 0;
+
+            if (full_dump || summary) {
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT #{} {}", count,
+                          full_dump ? "(full dump)" : "(summary)");
+            }
+
+            if (full_dump) {
+                const u32 raw = header->raw;
+                const u32 num_words = header->type0.NumWords();
+                const u32 skip = num_words + 1;
+                const size_t current_offset = reinterpret_cast<const u32*>(header) - dcb.data();
+                const size_t remaining = dcb.size();
+
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_RAW_HEADER = 0x{:08x}", raw);
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_COUNT bits = {}", header->type0.count.Value());
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_NUM_WORDS = {}", num_words);
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_SKIP_DWORDS = {}", skip);
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_OFFSET_DWORDS = {}", current_offset);
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_REMAINING_DWORDS = {}", remaining);
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_THREAD_ID = {}",
+                          std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
+                // Dump previous 8 dwords (if available)
+                {
+                    const u32* base = dcb.data();
+                    const size_t start = (current_offset >= 8) ? (current_offset - 8) : 0;
+                    const size_t n = current_offset - start;
+                    const size_t max_show = 8;
+                    for (size_t i = 0; i < n && i < max_show; ++i) {
+                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_PREV_DWORDS[{}] = 0x{:08x}",
+                                  i, base[start + i]);
+                    }
+                }
+
+                // Dump header + next 16 dwords
+                {
+                    const u32* base = dcb.data();
+                    const size_t max_dump = std::min<size_t>(remaining, 17); // header + 16 next
+                    for (size_t i = 0; i < max_dump; ++i) {
+                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_NEXT_DWORDS[{}] = 0x{:08x}",
+                                  i, base[current_offset + i]);
+                    }
+                }
+
+                // Check if header appears to be zero/uninitialized
+                if (raw == 0) {
+                    LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_ZERO_HEADER_DETECTED");
+                }
+            } else if (summary) {
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT summary: {} total occurrences", count);
+            }
+
             dcb = NextPacket(dcb, header->type0.NumWords() + 1);
             continue;
+        }
         case 2:
             // Type-2 packet are used for padding purposes
             dcb = NextPacket(dcb, 1);
@@ -1258,8 +1337,25 @@ Liverpool::CmdBuffer Liverpool::CopyCmdBuffers(std::span<const u32> dcb, std::sp
 void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
     auto& queue = mapped_queues[GfxQueueId];
 
+    static std::atomic<u32> submit_count{0};
+    const u32 n = submit_count.fetch_add(1);
+    const bool copy_enabled = Config::copyGPUCmdBuffers();
+
+    if (n < 5) {
+        LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}", copy_enabled ? "TRUE" : "FALSE");
+        LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMIT_GFX_CALLED #{} dcb_size={} ccb_size={}", n, dcb.size(), ccb.size());
+    }
+
     if (Config::copyGPUCmdBuffers()) {
+        if (n < 5) {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}",
+                      n, dcb.size(), ccb.size());
+        }
         std::tie(dcb, ccb) = CopyCmdBuffers(dcb, ccb);
+        if (n < 5) {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}",
+                      n, dcb.size(), ccb.size());
+        }
     }
 
     auto task = ProcessGraphics(dcb, ccb);
