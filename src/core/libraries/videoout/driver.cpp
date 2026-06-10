@@ -281,7 +281,14 @@ void VideoOutDriver::Flip(const Request& req) {
 
     // Reset prev flip label
     if (port->prev_index != -1) {
+        const uintptr_t label_base = reinterpret_cast<uintptr_t>(port->buffer_labels.data());
+        const uintptr_t label_addr = label_base + port->prev_index * sizeof(uintptr_t);
+        const u64 old_val = port->buffer_labels[port->prev_index];
         port->buffer_labels[port->prev_index] = 0;
+        const u64 new_val = port->buffer_labels[port->prev_index];
+        LOG_ERROR(
+            Lib_VideoOut, "KNACK_VO_LABEL_RESET buf_index={} label_addr={:p} old_val={} new_val={}",
+            port->prev_index, fmt::ptr(reinterpret_cast<void*>(label_addr)), old_val, new_val);
         port->SignalVoLabel();
     }
     // save to prev buf index

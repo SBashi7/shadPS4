@@ -339,6 +339,8 @@ s32 PS4_SYSV_ABI sceVideoOutGetBufferLabelAddress(s32 handle, uintptr_t* label_a
         return ORBIS_VIDEO_OUT_ERROR_INVALID_HANDLE;
     }
     *label_addr = reinterpret_cast<uintptr_t>(port->buffer_labels.data());
+    LOG_ERROR(Lib_VideoOut, "KNACK_VO_LABEL_GET handle={} label_addr={:p}", handle,
+              fmt::ptr(reinterpret_cast<void*>(*label_addr)));
     return 16;
 }
 
@@ -347,6 +349,12 @@ s32 sceVideoOutSubmitEopFlip(s32 handle, u32 buf_id, u32 mode, s64 flip_arg, voi
     if (!port) {
         return ORBIS_VIDEO_OUT_ERROR_INVALID_HANDLE;
     }
+
+    LOG_ERROR(
+        Lib_VideoOut, "KNACK_VO_SUBMIT_FLIP handle={} buf_id={} flip_arg={} label_addr={:p}",
+        handle, buf_id, flip_arg,
+        fmt::ptr(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(port->buffer_labels.data()) +
+                                         buf_id * sizeof(uintptr_t))));
     Platform::IrqC::Instance()->RegisterOnce(
         Platform::InterruptId::GfxFlip, [=](Platform::InterruptId irq) {
             ASSERT_MSG(irq == Platform::InterruptId::GfxFlip, "Unexpected IRQ");
