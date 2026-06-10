@@ -28,6 +28,7 @@ static const char* dcb_task_name{"DCB_TASK"};
 static const char* ccb_task_name{"CCB_TASK"};
 
 // KNACK PM4 diagnostic rate limiting
+static std::atomic<bool> knack_flip_signaled{false};
 static std::atomic<u32> knack_pm4_type0_count{0};
 static std::atomic<u32> knack_nextpacket_overflow_count{0};
 static constexpr u32 KNACK_DIAG_MAX_FULL_DUMPS = 10;
@@ -308,6 +309,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     const bool guest_markers_enabled = rasterizer && Config::getVkGuestMarkersEnabled();
 
     const auto base_addr = reinterpret_cast<uintptr_t>(dcb.data());
+    const u32* const initial_dcb_data = dcb.data();
+    const size_t initial_dcb_size = dcb.size();
     const u32 this_submit = knack_submit_index.fetch_add(1);
     u32 packet_index = 0;
     const bool trace_enabled = this_submit < 5;
@@ -356,6 +359,25 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             } else {
                 entry.packet_total_dwords = 1;
             }
+
+            // Detect advance mismatches
+            static size_t prev_expected_next = 0;
+            static u32 prev_opcode = 0;
+            static u32 prev_count_field = 0;
+            static u32 prev_pkt_index = 0;
+            const size_t expected_start = prev_expected_next;
+            const size_t actual_start = entry.offset_dwords;
+            if (packet_index > 0 && expected_start != actual_start) {
+                LOG_ERROR(Lib_GnmDriver,
+                          "KNACK_PM4_ADVANCE_MISMATCH submit={} prev_pkt={} prev_opcode={} "
+                          "prev_count={} expected_next={} actual_start={} diff={}",
+                          this_submit, prev_pkt_index, prev_opcode, prev_count_field,
+                          expected_start, actual_start, (s64)actual_start - (s64)expected_start);
+            }
+            prev_expected_next = entry.offset_dwords + entry.packet_total_dwords;
+            prev_opcode = entry.opcode;
+            prev_count_field = entry.count_field;
+            prev_pkt_index = entry.packet_index;
 
             // Tail range trace: log every packet when remaining <= 200 dwords
             if (entry.remaining_dwords <= 200) {
@@ -484,6 +506,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     // There is no evidence that GPU CP drives flip events by parsing
                     // special NOP packets. For convenience lets assume that it does.
                     LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SIGNAL");
+                    knack_flip_signaled.store(true);
                     Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
                     break;
                 }
@@ -1128,6 +1151,32 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             RESUME_GFX(ce_task);
         }
         ce_task.handle.destroy();
+    }
+
+    // KNACK: fallback PatchedFlip scan for submits where parser drifted past the marker
+    const bool was_signaled = knack_flip_signaled.exchange(false);
+    if (trace_enabled && !was_signaled && initial_dcb_size >= 64) {
+        const u32* scan = initial_dcb_data;
+        const size_t total = initial_dcb_size;
+        bool found = false;
+        size_t found_off = 0;
+        for (size_t i = 0; i + 1 < total; ++i) {
+            if (scan[i] == 0xc0391000 && scan[i + 1] == 0x68750776) {
+                found = true;
+                found_off = i;
+                break;
+            }
+        }
+        if (found) {
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
+                      "payload=0x{:08x}",
+                      this_submit, found_off, scan[found_off], scan[found_off + 1]);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_FALLBACK_SIGNAL");
+            Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+        } else {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_NOT_FOUND submit={}", this_submit);
+        }
     }
 
     FIBER_EXIT;
