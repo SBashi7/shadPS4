@@ -102,21 +102,48 @@ static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset)
         const bool summary = (count % KNACK_DIAG_SUMMARY_INTERVAL) == 0;
 
         if (full_dump) {
-            // Dump current packet header and surrounding context
             const u32* data = span.data();
             const size_t remaining = span.size();
+            const u32 raw_header = (remaining > 0) ? data[0] : 0;
+            const u32 pkt_type = (raw_header >> 30) & 3;
+            const u32 pkt_opcode = (pkt_type == 3) ? ((raw_header >> 8) & 0xFF) : 0;
+            const u32 pkt_count = (raw_header >> 16) & 0x3FFF;
 
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW #{}", count);
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REQUESTED_DWORDS = {}", offset);
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REMAINING_DWORDS = {}", remaining);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_OFFSET = {} dwords from span start",
-                      0);
-            if (remaining > 0) {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", data[0]);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", raw_header);
+
+            // Tail safe recovery check
+            bool do_safe_skip = false;
+            if (pkt_type == 3 && pkt_opcode == 0x10) {
+                // Looks like a NOP at the tail — check if remaining follows garbage pattern
+                size_t zero_count = 0;
+                const size_t check_n = std::min<size_t>(remaining, 44);
+                for (size_t i = 2; i < check_n; ++i) {
+                    if (data[i] == 0)
+                        zero_count++;
+                }
+                const bool mostly_zeros = (zero_count >= check_n / 2);
+                LOG_ERROR(Lib_GnmDriver,
+                          "KNACK_TAIL_SAFE_RECOVERY_CHECK type=3 opcode=Nop "
+                          "pkt_count={} remaining={} zeros_in_tail={}/{}",
+                          pkt_count, remaining, zero_count, check_n - 2);
+                if (mostly_zeros) {
+                    do_safe_skip = true;
+                    LOG_ERROR(Lib_GnmDriver, "KNACK_TAIL_SAFE_RECOVERY_APPLIED");
+                } else {
+                    LOG_ERROR(Lib_GnmDriver, "KNACK_TAIL_SAFE_RECOVERY_REJECTED");
+                }
+            } else {
+                LOG_ERROR(Lib_GnmDriver,
+                          "KNACK_TAIL_SAFE_RECOVERY_REJECTED type={} opcode={} (not Nop tail)",
+                          pkt_type, pkt_opcode);
             }
+
             // Dump last trace packets
             DumpTraceRing();
-            // Dump remaining dwords (what's left in the span)
+            // Dump remaining dwords
             {
                 const size_t dump_n = std::min<size_t>(remaining, 128);
                 for (size_t i = 0; i < dump_n; ++i) {
