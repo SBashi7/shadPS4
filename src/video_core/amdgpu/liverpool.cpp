@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <boost/preprocessor/stringize.hpp>
 #include <atomic>
 #include <thread>
+#include <boost/preprocessor/stringize.hpp>
 
 #include "common/assert.h"
 #include "common/config.h"
@@ -75,14 +75,16 @@ static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset)
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW #{}", count);
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REQUESTED_DWORDS = {}", offset);
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REMAINING_DWORDS = {}", remaining);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_OFFSET = {} dwords from span start", 0);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_OFFSET = {} dwords from span start",
+                      0);
             if (remaining > 0) {
                 LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", data[0]);
             }
             // Dump up to 8 previous dwords (they're already past, show what we can)
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_STOPPING_CURRENT_BUFFER");
         } else if (summary) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW summary: {} total occurrences", count);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW summary: {} total occurrences",
+                      count);
         }
         // Return empty subspan so check for next packet bails out
         return {};
@@ -290,7 +292,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 const size_t remaining = dcb.size();
 
                 LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_RAW_HEADER = 0x{:08x}", raw);
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_COUNT bits = {}", header->type0.count.Value());
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_COUNT bits = {}",
+                          header->type0.count.Value());
                 LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_NUM_WORDS = {}", num_words);
                 LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_SKIP_DWORDS = {}", skip);
                 LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_OFFSET_DWORDS = {}", current_offset);
@@ -305,8 +308,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     const size_t n = current_offset - start;
                     const size_t max_show = 8;
                     for (size_t i = 0; i < n && i < max_show; ++i) {
-                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_PREV_DWORDS[{}] = 0x{:08x}",
-                                  i, base[start + i]);
+                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_PREV_DWORDS[{}] = 0x{:08x}", i,
+                                  base[start + i]);
                     }
                 }
 
@@ -315,8 +318,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     const u32* base = dcb.data();
                     const size_t max_dump = std::min<size_t>(remaining, 17); // header + 16 next
                     for (size_t i = 0; i < max_dump; ++i) {
-                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_NEXT_DWORDS[{}] = 0x{:08x}",
-                                  i, base[current_offset + i]);
+                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_NEXT_DWORDS[{}] = 0x{:08x}", i,
+                                  base[current_offset + i]);
                     }
                 }
 
@@ -325,7 +328,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_ZERO_HEADER_DETECTED");
                 }
             } else if (summary) {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT summary: {} total occurrences", count);
+                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT summary: {} total occurrences",
+                          count);
             }
 
             dcb = NextPacket(dcb, header->type0.NumWords() + 1);
@@ -1342,19 +1346,23 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
     const bool copy_enabled = Config::copyGPUCmdBuffers();
 
     if (n < 5) {
-        LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}", copy_enabled ? "TRUE" : "FALSE");
-        LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMIT_GFX_CALLED #{} dcb_size={} ccb_size={}", n, dcb.size(), ccb.size());
+        LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}",
+                  copy_enabled ? "TRUE" : "FALSE");
+        LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMIT_GFX_CALLED #{} dcb_size={} ccb_size={}", n,
+                  dcb.size(), ccb.size());
     }
 
     if (Config::copyGPUCmdBuffers()) {
         if (n < 5) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}",
-                      n, dcb.size(), ccb.size());
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}", n,
+                      dcb.size(), ccb.size());
         }
         std::tie(dcb, ccb) = CopyCmdBuffers(dcb, ccb);
         if (n < 5) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}",
-                      n, dcb.size(), ccb.size());
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}", n,
+                      dcb.size(), ccb.size());
         }
     }
 
