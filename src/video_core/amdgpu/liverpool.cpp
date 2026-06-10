@@ -33,6 +33,40 @@ static std::atomic<u32> knack_nextpacket_overflow_count{0};
 static constexpr u32 KNACK_DIAG_MAX_FULL_DUMPS = 10;
 static constexpr u32 KNACK_DIAG_SUMMARY_INTERVAL = 100;
 
+// KNACK per-packet trace
+static std::atomic<u32> knack_submit_index{0};
+struct PacketTraceEntry {
+    u32 packet_index = 0;
+    size_t offset_dwords = 0;
+    size_t remaining_dwords = 0;
+    u32 raw_header = 0;
+    u32 type = 0;
+    u32 opcode = 0;
+    u32 count_field = 0;
+    u32 packet_total_dwords = 0;
+};
+static constexpr u32 TRACE_RING_SIZE = 5;
+static PacketTraceEntry trace_ring[TRACE_RING_SIZE];
+static u32 trace_ring_pos = 0;
+
+static void PushTrace(const PacketTraceEntry& e) {
+    trace_ring[trace_ring_pos % TRACE_RING_SIZE] = e;
+    trace_ring_pos++;
+}
+
+static void DumpTraceRing() {
+    const u32 count = std::min<u32>(trace_ring_pos, TRACE_RING_SIZE);
+    const u32 start = (trace_ring_pos > TRACE_RING_SIZE) ? (trace_ring_pos - TRACE_RING_SIZE) : 0;
+    for (u32 i = 0; i < count; i++) {
+        const auto& e = trace_ring[(start + i) % TRACE_RING_SIZE];
+        LOG_ERROR(Lib_GnmDriver,
+                  "KNACK_PM4_TRACE_LAST_PACKET[{}] idx={} offset={} rem={} header=0x{:08x} "
+                  "type={} opcode={} count={} pkt_dwords={}",
+                  i, e.packet_index, e.offset_dwords, e.remaining_dwords, e.raw_header, e.type,
+                  e.opcode, e.count_field, e.packet_total_dwords);
+    }
+}
+
 #define MAX_NAMES 56
 static_assert(Liverpool::NumComputeRings <= MAX_NAMES);
 
@@ -80,7 +114,16 @@ static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset)
             if (remaining > 0) {
                 LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", data[0]);
             }
-            // Dump up to 8 previous dwords (they're already past, show what we can)
+            // Dump last trace packets
+            DumpTraceRing();
+            // Dump remaining dwords (what's left in the span)
+            {
+                const size_t dump_n = std::min<size_t>(remaining, 128);
+                for (size_t i = 0; i < dump_n; ++i) {
+                    LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_DCB_TAIL[{}] = 0x{:08x}", i,
+                              data[i]);
+                }
+            }
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_STOPPING_CURRENT_BUFFER");
         } else if (summary) {
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW summary: {} total occurrences",
@@ -265,11 +308,46 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     const bool guest_markers_enabled = rasterizer && Config::getVkGuestMarkersEnabled();
 
     const auto base_addr = reinterpret_cast<uintptr_t>(dcb.data());
+    const u32 this_submit = knack_submit_index.fetch_add(1);
+    u32 packet_index = 0;
+    const bool trace_enabled = this_submit < 5;
+    constexpr u32 TRACE_MAX_PACKETS = 1000;
+
+    // Dump first 128 dwords for trace-enabled submits
+    if (trace_enabled) {
+        const size_t head_n = std::min<size_t>(dcb.size(), 128);
+        for (size_t i = 0; i < head_n; ++i) {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_DCB_HEAD submit={} [{}] = 0x{:08x}", this_submit, i,
+                      dcb[i]);
+        }
+    }
+
     while (!dcb.empty()) {
         ProcessCommands();
 
         const auto* header = reinterpret_cast<const PM4Header*>(dcb.data());
         const u32 type = header->type;
+
+        // Per-packet trace
+        if (trace_enabled && packet_index < TRACE_MAX_PACKETS) {
+            PacketTraceEntry entry{};
+            entry.packet_index = packet_index;
+            entry.offset_dwords = reinterpret_cast<const u32*>(header) - dcb.data();
+            entry.remaining_dwords = dcb.size();
+            entry.raw_header = header->raw;
+            entry.type = type;
+            entry.count_field = header->type3.count.Value();
+            if (type == 3) {
+                entry.opcode = static_cast<u32>(header->type3.opcode);
+                entry.packet_total_dwords = header->type3.NumWords() + 1;
+            } else if (type == 0) {
+                entry.packet_total_dwords = header->type0.NumWords() + 1;
+            } else {
+                entry.packet_total_dwords = 1;
+            }
+            PushTrace(entry);
+            packet_index++;
+        }
 
         switch (type) {
         default:
