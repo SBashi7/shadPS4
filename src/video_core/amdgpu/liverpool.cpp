@@ -338,7 +338,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             entry.type = type;
             entry.count_field = header->type3.count.Value();
             if (type == 3) {
-                entry.opcode = static_cast<u32>(header->type3.opcode);
+                entry.opcode = static_cast<u32>(header->type3.opcode.Value());
                 entry.packet_total_dwords = header->type3.NumWords() + 1;
             } else if (type == 0) {
                 entry.packet_total_dwords = header->type0.NumWords() + 1;
