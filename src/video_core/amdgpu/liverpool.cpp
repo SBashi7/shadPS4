@@ -349,6 +349,46 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
               initial_dcb_size);
     LOG_ERROR(Lib_GnmDriver, "KNACK_GPU_TASK_ACTIVE submit={}", this_submit);
 
+    // KNACK: run fallback PatchedFlip scan BEFORE processing (in case WaitRegMem blocks later)
+    // Look up flip metadata for this submit
+    KnackFlipMeta* flip_meta_early = nullptr;
+    for (u32 i = 0; i < knack_flip_meta_count.load() && i < KNACK_FLIP_META_MAX; ++i) {
+        if (knack_flip_meta[i].submit_id == this_submit) {
+            flip_meta_early = &knack_flip_meta[i];
+            break;
+        }
+    }
+    if (flip_meta_early) {
+        LOG_ERROR(Lib_GnmDriver,
+                  "KNACK_FLIP_META_PROCESS submit={} flip_id={} buf={} label_addr={:p}",
+                  this_submit, flip_meta_early->flip_id, flip_meta_early->buf_idx,
+                  fmt::ptr(reinterpret_cast<void*>(flip_meta_early->label_addr)));
+    }
+    if (initial_dcb_size >= 64) {
+        LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_BEGIN submit={} dcb_size={}", this_submit,
+                  initial_dcb_size);
+        const u32* scan = initial_dcb_data;
+        bool found = false;
+        size_t found_off = 0;
+        for (size_t i = 0; i + 1 < initial_dcb_size; ++i) {
+            if (scan[i] == 0xc0391000 && scan[i + 1] == 0x68750776) {
+                found = true;
+                found_off = i;
+                break;
+            }
+        }
+        if (found) {
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
+                      "payload=0x{:08x}",
+                      this_submit, found_off, scan[found_off], scan[found_off + 1]);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_FALLBACK_SIGNAL submit={}", this_submit);
+            Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+        } else {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_NOT_FOUND submit={}", this_submit);
+        }
+    }
+
     // Dump first 128 dwords for trace-enabled submits
     if (trace_enabled) {
         const size_t head_n = std::min<size_t>(dcb.size(), 128);
@@ -1241,53 +1281,6 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             RESUME_GFX(ce_task);
         }
         ce_task.handle.destroy();
-    }
-
-    // KNACK: fallback PatchedFlip scan — use registered flip metadata
-    const bool was_signaled = knack_flip_signaled.exchange(false);
-
-    // Look up flip metadata for this submit
-    KnackFlipMeta* flip_meta = nullptr;
-    for (u32 i = 0; i < knack_flip_meta_count.load() && i < KNACK_FLIP_META_MAX; ++i) {
-        if (knack_flip_meta[i].submit_id == this_submit) {
-            flip_meta = &knack_flip_meta[i];
-            break;
-        }
-    }
-
-    if (flip_meta) {
-        LOG_ERROR(Lib_GnmDriver,
-                  "KNACK_FLIP_META_PROCESS submit={} flip_id={} buf={} label_addr={:p}",
-                  this_submit, flip_meta->flip_id, flip_meta->buf_idx,
-                  fmt::ptr(reinterpret_cast<void*>(flip_meta->label_addr)));
-    }
-
-    if (!was_signaled && initial_dcb_size >= 64) {
-        LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_BEGIN submit={} dcb_size={}", this_submit,
-                  initial_dcb_size);
-        const u32* scan = initial_dcb_data;
-        const size_t total = initial_dcb_size;
-        bool found = false;
-        size_t found_off = 0;
-        for (size_t i = 0; i + 1 < total; ++i) {
-            if (scan[i] == 0xc0391000 && scan[i + 1] == 0x68750776) {
-                found = true;
-                found_off = i;
-                break;
-            }
-        }
-        if (found) {
-            LOG_ERROR(Lib_GnmDriver,
-                      "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
-                      "payload=0x{:08x}",
-                      this_submit, found_off, scan[found_off], scan[found_off + 1]);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_FALLBACK_SIGNAL");
-            Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
-        } else {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_NOT_FOUND submit={}", this_submit);
-        }
-    } else if (was_signaled) {
-        LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_ALREADY_SIGNALED submit={}", this_submit);
     }
 
     LOG_ERROR(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_EXIT submit={}", this_submit);
