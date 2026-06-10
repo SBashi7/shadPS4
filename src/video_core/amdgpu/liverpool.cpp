@@ -320,6 +320,16 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             LOG_ERROR(Lib_GnmDriver, "KNACK_DCB_HEAD submit={} [{}] = 0x{:08x}", this_submit, i,
                       dcb[i]);
         }
+        // Log expected flip patch positions for this DCB
+        if (dcb.size() >= 64) {
+            const size_t flip_write = dcb.size() - 64;
+            const size_t flip_nop = flip_write + 5;
+            const size_t flip_payload = flip_nop + 1;
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_PATCHEDFLIP_EXPECTED submit={} flip_write_offset={} nop_offset={} "
+                      "payload_offset={} expected_nop=0xC0391000 expected_payload=0x68750776",
+                      this_submit, flip_write, flip_nop, flip_payload);
+        }
     }
 
     while (!dcb.empty()) {
@@ -332,7 +342,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         if (trace_enabled && packet_index < TRACE_MAX_PACKETS) {
             PacketTraceEntry entry{};
             entry.packet_index = packet_index;
-            entry.offset_dwords = reinterpret_cast<const u32*>(header) - dcb.data();
+            entry.offset_dwords =
+                reinterpret_cast<const u32*>(header) - reinterpret_cast<const u32*>(base_addr);
             entry.remaining_dwords = dcb.size();
             entry.raw_header = header->raw;
             entry.type = type;
@@ -345,6 +356,20 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             } else {
                 entry.packet_total_dwords = 1;
             }
+
+            // Tail range trace: log every packet when remaining <= 200 dwords
+            if (entry.remaining_dwords <= 200) {
+                const size_t abs_off = entry.offset_dwords;
+                const size_t end_off = abs_off + entry.packet_total_dwords;
+                const char* opcode_name = (type == 3) ? "type3" : (type == 0) ? "type0" : "other";
+                LOG_ERROR(Lib_GnmDriver,
+                          "KNACK_PM4_RANGE submit={} pkt={} start={} end={} rem={} "
+                          "header=0x{:08x} type={} opcode={} count={} total_dw={}",
+                          this_submit, entry.packet_index, abs_off, end_off, entry.remaining_dwords,
+                          entry.raw_header, entry.type, entry.opcode, entry.count_field,
+                          entry.packet_total_dwords);
+            }
+
             PushTrace(entry);
             packet_index++;
         }
