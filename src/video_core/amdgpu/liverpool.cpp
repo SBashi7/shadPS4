@@ -102,48 +102,21 @@ static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset)
         const bool summary = (count % KNACK_DIAG_SUMMARY_INTERVAL) == 0;
 
         if (full_dump) {
+            // Dump current packet header and surrounding context
             const u32* data = span.data();
             const size_t remaining = span.size();
-            const u32 raw_header = (remaining > 0) ? data[0] : 0;
-            const u32 pkt_type = (raw_header >> 30) & 3;
-            const u32 pkt_opcode = (pkt_type == 3) ? ((raw_header >> 8) & 0xFF) : 0;
-            const u32 pkt_count = (raw_header >> 16) & 0x3FFF;
 
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW #{}", count);
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REQUESTED_DWORDS = {}", offset);
             LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REMAINING_DWORDS = {}", remaining);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", raw_header);
-
-            // Tail safe recovery check
-            bool do_safe_skip = false;
-            if (pkt_type == 3 && pkt_opcode == 0x10) {
-                // Looks like a NOP at the tail — check if remaining follows garbage pattern
-                size_t zero_count = 0;
-                const size_t check_n = std::min<size_t>(remaining, 44);
-                for (size_t i = 2; i < check_n; ++i) {
-                    if (data[i] == 0)
-                        zero_count++;
-                }
-                const bool mostly_zeros = (zero_count >= check_n / 2);
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_TAIL_SAFE_RECOVERY_CHECK type=3 opcode=Nop "
-                          "pkt_count={} remaining={} zeros_in_tail={}/{}",
-                          pkt_count, remaining, zero_count, check_n - 2);
-                if (mostly_zeros) {
-                    do_safe_skip = true;
-                    LOG_ERROR(Lib_GnmDriver, "KNACK_TAIL_SAFE_RECOVERY_APPLIED");
-                } else {
-                    LOG_ERROR(Lib_GnmDriver, "KNACK_TAIL_SAFE_RECOVERY_REJECTED");
-                }
-            } else {
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_TAIL_SAFE_RECOVERY_REJECTED type={} opcode={} (not Nop tail)",
-                          pkt_type, pkt_opcode);
+            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_OFFSET = {} dwords from span start",
+                      0);
+            if (remaining > 0) {
+                LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", data[0]);
             }
-
             // Dump last trace packets
             DumpTraceRing();
-            // Dump remaining dwords
+            // Dump remaining dwords (what's left in the span)
             {
                 const size_t dump_n = std::min<size_t>(remaining, 128);
                 for (size_t i = 0; i < dump_n; ++i) {
@@ -444,18 +417,17 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             // Type-2 packet are used for padding purposes
             dcb = NextPacket(dcb, 1);
             continue;
-        case 3: {
+        case 3:
             const u32 count = header->type3.NumWords();
             const u32 pkt_total = count + 1;
-            // KNACK: guard against garbage tail being parsed as valid Nop (false PatchedFlip)
+            // KNACK: guard against garbage tail parsed as Nop (false PatchedFlip)
             if (pkt_total > dcb.size()) {
                 const u32 opcode_raw = static_cast<u32>(header->type3.opcode.Value());
                 LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_PM4_OVERFLOW_GUARD pkt_total={} remaining={} opcode={} header=0x{:"
-                          "08x}",
+                          "KNACK_PM4_OVERFLOW_GUARD pkt_total={} remaining={} opcode={} "
+                          "header=0x{:08x}",
                           pkt_total, dcb.size(), opcode_raw, header->raw);
-                if (opcode_raw == 0x10) { // Nop at tail — safe to discard
-                    // Check for zero tail pattern
+                if (opcode_raw == 0x10) {
                     const u32* tail = dcb.data();
                     size_t zero_count = 0;
                     const size_t check_n = std::min<size_t>(dcb.size(), 44);
@@ -466,11 +438,10 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     if (zero_count >= check_n / 2) {
                         LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD_SKIP_TAIL zeros={}/{}",
                                   zero_count, check_n - 2);
-                        dcb = {}; // stop processing this buffer cleanly
-                        break;    // exit type 3 case
+                        dcb = {};
+                        break;
                     }
                 }
-                // Fall through — will hit NextPacket overflow as before
             }
             const PM4ItOpcode opcode = header->type3.opcode;
             switch (opcode) {
@@ -1115,420 +1086,414 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             dcb = NextPacket(dcb, header->type3.NumWords() + 1);
             break;
         }
-        }
-
-        if (ce_task.handle) {
-            while (!ce_task.handle.done()) {
-                RESUME_GFX(ce_task);
-            }
-            ce_task.handle.destroy();
-        }
-
-        FIBER_EXIT;
     }
 
-    template <bool is_indirect>
-    Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
-        FIBER_ENTER(acb_task_name[vqid]);
-        auto& queue = asc_queues[{vqid}];
-        const bool host_markers_enabled = rasterizer && Config::getVkHostMarkersEnabled();
+    if (ce_task.handle) {
+        while (!ce_task.handle.done()) {
+            RESUME_GFX(ce_task);
+        }
+        ce_task.handle.destroy();
+    }
 
-        struct IndirectPatch {
-            const PM4Header* header;
-            VAddr indirect_addr;
-        };
-        boost::container::small_vector<IndirectPatch, 4> indirect_patches;
+    FIBER_EXIT;
+}
 
-        auto base_addr = reinterpret_cast<VAddr>(acb.data());
-        size_t acb_size = acb.size_bytes();
+template <bool is_indirect>
+Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
+    FIBER_ENTER(acb_task_name[vqid]);
+    auto& queue = asc_queues[{vqid}];
+    const bool host_markers_enabled = rasterizer && Config::getVkHostMarkersEnabled();
 
-        while (!acb.empty()) {
-            ProcessCommands();
+    struct IndirectPatch {
+        const PM4Header* header;
+        VAddr indirect_addr;
+    };
+    boost::container::small_vector<IndirectPatch, 4> indirect_patches;
 
-            auto* header = reinterpret_cast<const PM4Header*>(acb.data());
-            u32 next_dw_off = header->type3.NumWords() + 1;
+    auto base_addr = reinterpret_cast<VAddr>(acb.data());
+    size_t acb_size = acb.size_bytes();
 
-            // If we have a buffered packet, use it.
-            if (queue.tmp_dwords > 0) [[unlikely]] {
-                header = reinterpret_cast<const PM4Header*>(queue.tmp_packet.data());
-                next_dw_off = header->type3.NumWords() + 1 - queue.tmp_dwords;
-                std::memcpy(queue.tmp_packet.data() + queue.tmp_dwords, acb.data(),
-                            next_dw_off * sizeof(u32));
-                queue.tmp_dwords = 0;
-            }
+    while (!acb.empty()) {
+        ProcessCommands();
 
-            // If the packet is split across ring boundary, buffer until next submission
-            if (next_dw_off > acb.size()) [[unlikely]] {
-                std::memcpy(queue.tmp_packet.data(), acb.data(), acb.size_bytes());
-                queue.tmp_dwords = acb.size();
-                if constexpr (!is_indirect) {
-                    *queue.read_addr += acb.size();
-                    *queue.read_addr %= queue.ring_size_dw;
-                }
-                break;
-            }
+        auto* header = reinterpret_cast<const PM4Header*>(acb.data());
+        u32 next_dw_off = header->type3.NumWords() + 1;
 
-            if (header->type == 2) {
-                // Type-2 packet are used for padding purposes
-                next_dw_off = 1;
-                acb = NextPacket(acb, next_dw_off);
-                if constexpr (!is_indirect) {
-                    *queue.read_addr += next_dw_off;
-                    *queue.read_addr %= queue.ring_size_dw;
-                }
-                continue;
-            }
+        // If we have a buffered packet, use it.
+        if (queue.tmp_dwords > 0) [[unlikely]] {
+            header = reinterpret_cast<const PM4Header*>(queue.tmp_packet.data());
+            next_dw_off = header->type3.NumWords() + 1 - queue.tmp_dwords;
+            std::memcpy(queue.tmp_packet.data() + queue.tmp_dwords, acb.data(),
+                        next_dw_off * sizeof(u32));
+            queue.tmp_dwords = 0;
+        }
 
-            if (header->type != 3) {
-                // No other types of packets were spotted so far
-                UNREACHABLE_MSG("Invalid PM4 type {}", header->type.Value());
+        // If the packet is split across ring boundary, buffer until next submission
+        if (next_dw_off > acb.size()) [[unlikely]] {
+            std::memcpy(queue.tmp_packet.data(), acb.data(), acb.size_bytes());
+            queue.tmp_dwords = acb.size();
+            if constexpr (!is_indirect) {
+                *queue.read_addr += acb.size();
+                *queue.read_addr %= queue.ring_size_dw;
             }
+            break;
+        }
 
-            const PM4ItOpcode opcode = header->type3.opcode;
-
-            const auto* it_body = reinterpret_cast<const u32*>(header) + 1;
-            switch (opcode) {
-            case PM4ItOpcode::Nop: {
-                const auto* nop = reinterpret_cast<const PM4CmdNop*>(header);
-                break;
-            }
-            case PM4ItOpcode::IndirectBuffer: {
-                const auto* indirect_buffer = reinterpret_cast<const PM4CmdIndirectBuffer*>(header);
-                auto task = ProcessCompute<true>(
-                    {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size}, vqid);
-                RESUME_ASC(task, vqid);
-
-                while (!task.handle.done()) {
-                    YIELD_ASC(vqid);
-                    RESUME_ASC(task, vqid);
-                }
-                break;
-            }
-            case PM4ItOpcode::DmaData: {
-                const auto* dma_data = reinterpret_cast<const PM4DmaData*>(header);
-                if (dma_data->dst_addr_lo == 0x3022C || !rasterizer) {
-                    break;
-                }
-                if (dma_data->src_sel == DmaDataSrc::Data && dma_data->dst_sel == DmaDataDst::Gds) {
-                    rasterizer->FillBuffer(dma_data->dst_addr_lo, dma_data->NumBytes(),
-                                           dma_data->data, true);
-                } else if ((dma_data->src_sel == DmaDataSrc::Memory ||
-                            dma_data->src_sel == DmaDataSrc::MemoryUsingL2) &&
-                           dma_data->dst_sel == DmaDataDst::Gds) {
-                    rasterizer->CopyBuffer(dma_data->dst_addr_lo, dma_data->SrcAddress<VAddr>(),
-                                           dma_data->NumBytes(), true, false);
-                } else if (dma_data->src_sel == DmaDataSrc::Data &&
-                           (dma_data->dst_sel == DmaDataDst::Memory ||
-                            dma_data->dst_sel == DmaDataDst::MemoryUsingL2)) {
-                    rasterizer->FillBuffer(dma_data->DstAddress<VAddr>(), dma_data->NumBytes(),
-                                           dma_data->data, false);
-                } else if (dma_data->src_sel == DmaDataSrc::Gds &&
-                           (dma_data->dst_sel == DmaDataDst::Memory ||
-                            dma_data->dst_sel == DmaDataDst::MemoryUsingL2)) {
-                    rasterizer->CopyBuffer(dma_data->DstAddress<VAddr>(), dma_data->src_addr_lo,
-                                           dma_data->NumBytes(), false, true);
-                } else if ((dma_data->src_sel == DmaDataSrc::Memory ||
-                            dma_data->src_sel == DmaDataSrc::MemoryUsingL2) &&
-                           (dma_data->dst_sel == DmaDataDst::Memory ||
-                            dma_data->dst_sel == DmaDataDst::MemoryUsingL2)) {
-                    const u32 num_bytes = dma_data->NumBytes();
-                    const VAddr src_addr = dma_data->SrcAddress<VAddr>();
-                    const VAddr dst_addr = dma_data->DstAddress<VAddr>();
-                    const PM4Header* header =
-                        reinterpret_cast<const PM4Header*>(dst_addr - sizeof(PM4Header));
-                    if (dst_addr >= base_addr && dst_addr < base_addr + acb_size &&
-                        num_bytes == sizeof(PM4CmdDispatchIndirect::GroupDimensions) &&
-                        header->type == 3 && header->type3.opcode == PM4ItOpcode::DispatchDirect) {
-                        indirect_patches.emplace_back(header, src_addr);
-                    }
-                    rasterizer->CopyBuffer(dst_addr, src_addr, num_bytes, false, false);
-                } else {
-                    UNREACHABLE_MSG("WriteData src_sel = {}, dst_sel = {}",
-                                    u32(dma_data->src_sel.Value()), u32(dma_data->dst_sel.Value()));
-                }
-                break;
-            }
-            case PM4ItOpcode::AcquireMem: {
-                break;
-            }
-            case PM4ItOpcode::Rewind: {
-                if (!rasterizer) {
-                    break;
-                }
-                const PM4CmdRewind* rewind = reinterpret_cast<const PM4CmdRewind*>(header);
-                auto& buffer_cache = rasterizer->GetBufferCache();
-                auto& gpu_modified_ranges_pending = buffer_cache.GetPendingGpuModifiedRanges();
-                const VAddr rewind_addr = reinterpret_cast<VAddr>(acb.data());
-                bool must_flush = false;
-                gpu_modified_ranges_pending.ForEachInRange(
-                    rewind_addr, acb.size_bytes(),
-                    [&indirect_patches, &must_flush, rewind_header = header](VAddr begin,
-                                                                             VAddr end) {
-                        const u32 range_size = end - begin;
-                        if (range_size != sizeof(PM4CmdDispatchIndirect::GroupDimensions)) {
-                            must_flush = true;
-                            return;
-                        }
-                        const PM4Header* header =
-                            reinterpret_cast<const PM4Header*>(begin - sizeof(PM4Header));
-                        if (header->type != 3 ||
-                            header->type3.opcode != PM4ItOpcode::DispatchDirect) {
-                            must_flush = true;
-                            return;
-                        }
-                        // FIX: Use emplace_back and provide the 'begin' address as the second
-                        // argument
-                        indirect_patches.emplace_back(header, begin);
-                    });
-
-                if (must_flush) {
-                    buffer_cache.CommitPendingGpuRanges();
-                    rasterizer->CommitPendingGpuRanges();
-
-                } else {
-                    // All GPU modified regions in the command list are patched with indirect
-                    // dispatches. There is no needed to flush GPU data to CPU so avoiding
-                    // read-protecting pages.
-                    gpu_modified_ranges_pending.Subtract(rewind_addr, acb.size_bytes());
-                }
-
-                //  ASSERT_MSG(rewind->Valid(), "Rewind valid bit must be set");
-                break;
-            }
-            case PM4ItOpcode::SetShReg: {
-                const auto* set_data = reinterpret_cast<const PM4CmdSetData*>(header);
-                const auto set_size = (header->type3.NumWords() - 1) * sizeof(u32);
-
-                if (set_data->reg_offset >= 0x200 &&
-                    set_data->reg_offset <= (0x200 + sizeof(ComputeProgram) / 4)) {
-                    ASSERT(set_size <= sizeof(ComputeProgram));
-                    auto* addr = reinterpret_cast<u32*>(&mapped_queues[vqid + 1].cs_state) +
-                                 (set_data->reg_offset - 0x200);
-                    std::memcpy(addr, header + 2, set_size);
-                } else {
-                    std::memcpy(&regs.reg_array[Regs::ShRegWordOffset + set_data->reg_offset],
-                                header + 2, set_size);
-                }
-                break;
-            }
-            case PM4ItOpcode::SetQueueReg: {
-                const auto* set_data = reinterpret_cast<const PM4CmdSetQueueReg*>(header);
-                LOG_DEBUG(Render, "Encountered compute SetQueueReg: vqid = {}, reg_offset = {:#x}",
-                          set_data->vqid.Value(), set_data->reg_offset.Value());
-                break;
-            }
-            case PM4ItOpcode::DispatchDirect: {
-                const auto* dispatch_direct = reinterpret_cast<const PM4CmdDispatchDirect*>(header);
-                if (auto it = std::ranges::find(indirect_patches, header, &IndirectPatch::header);
-                    it != indirect_patches.end()) {
-                    const auto size = sizeof(PM4CmdDispatchIndirect::GroupDimensions);
-                    rasterizer->DispatchIndirect(it->indirect_addr, 0, size, true);
-                    break;
-                }
-                auto& cs_program = GetCsRegs();
-                cs_program.dim_x = dispatch_direct->dim_x;
-                cs_program.dim_y = dispatch_direct->dim_y;
-                cs_program.dim_z = dispatch_direct->dim_z;
-                cs_program.dispatch_initiator = dispatch_direct->dispatch_initiator;
-                if (DebugState.DumpingCurrentReg()) {
-                    DebugState.PushRegsDumpCompute(base_addr, reinterpret_cast<uintptr_t>(header),
-                                                   cs_program);
-                }
-                if (rasterizer && (cs_program.dispatch_initiator & 1)) {
-                    const auto cmd_address = reinterpret_cast<const void*>(header);
-                    if (host_markers_enabled) {
-                        rasterizer->ScopeMarkerBegin(
-                            fmt::format("asc[{}]:{}:DispatchDirect", vqid, cmd_address));
-                        rasterizer->DispatchDirect();
-                        rasterizer->ScopeMarkerEnd();
-                    } else {
-                        rasterizer->DispatchDirect();
-                    }
-                }
-                break;
-            }
-            case PM4ItOpcode::DispatchIndirect: {
-                const auto* dispatch_indirect =
-                    reinterpret_cast<const PM4CmdDispatchIndirectMec*>(header);
-                auto& cs_program = GetCsRegs();
-                const auto ib_address = dispatch_indirect->Address<VAddr>();
-                const auto size = sizeof(PM4CmdDispatchIndirect::GroupDimensions);
-                cs_program.dispatch_initiator = dispatch_indirect->dispatch_initiator;
-                if (DebugState.DumpingCurrentReg()) {
-                    DebugState.PushRegsDumpCompute(base_addr, reinterpret_cast<uintptr_t>(header),
-                                                   cs_program);
-                }
-                if (rasterizer && (cs_program.dispatch_initiator & 1)) {
-                    const auto cmd_address = reinterpret_cast<const void*>(header);
-                    if (host_markers_enabled) {
-                        rasterizer->ScopeMarkerBegin(
-                            fmt::format("asc[{}]:{}:DispatchIndirect", vqid, cmd_address));
-                        rasterizer->DispatchIndirect(ib_address, 0, size, true);
-                        rasterizer->ScopeMarkerEnd();
-                    } else {
-                        rasterizer->DispatchIndirect(ib_address, 0, size, false);
-                    }
-                }
-                break;
-            }
-            case PM4ItOpcode::WriteData: {
-                const auto* write_data = reinterpret_cast<const PM4CmdWriteData*>(header);
-                ASSERT(write_data->dst_sel.Value() == 2 || write_data->dst_sel.Value() == 5);
-                const u32 data_size = (header->type3.count.Value() - 2) * 4;
-                if (data_size <= sizeof(u64) && rasterizer) {
-                    rasterizer->CommitPendingGpuRanges();
-                }
-                if (!write_data->wr_one_addr.Value()) {
-                    std::memcpy(write_data->Address<void*>(), write_data->data, data_size);
-                } else {
-                    UNREACHABLE();
-                }
-                break;
-            }
-            case PM4ItOpcode::MemSemaphore: {
-                const auto* mem_semaphore = reinterpret_cast<const PM4CmdMemSemaphore*>(header);
-                if (mem_semaphore->IsSignaling()) {
-                    mem_semaphore->Signal();
-                } else {
-                    while (!mem_semaphore->Signaled()) {
-                        YIELD_ASC(vqid);
-                    }
-                    mem_semaphore->Decrement();
-                }
-                break;
-            }
-            case PM4ItOpcode::WaitRegMem: {
-                const auto* wait_reg_mem = reinterpret_cast<const PM4CmdWaitRegMem*>(header);
-                ASSERT(wait_reg_mem->engine.Value() == PM4CmdWaitRegMem::Engine::Me);
-                while (!wait_reg_mem->Test(regs.reg_array)) {
-                    YIELD_ASC(vqid);
-                }
-                break;
-            }
-            case PM4ItOpcode::ReleaseMem: {
-                const auto* release_mem = reinterpret_cast<const PM4CmdReleaseMem*>(header);
-                if (rasterizer) {
-                    rasterizer->CommitPendingGpuRanges();
-                }
-                release_mem->SignalFence(
-                    [pipe_id = queue.pipe_id] {
-                        Platform::IrqC::Instance()->Signal(
-                            static_cast<Platform::InterruptId>(pipe_id));
-                    },
-                    [this](VAddr dst, u16 gds_index, u16 num_dwords) {
-                        rasterizer->CopyBuffer(dst, gds_index, num_dwords * sizeof(u32), false,
-                                               true);
-                    });
-                break;
-            }
-            case PM4ItOpcode::EventWrite: {
-                // const auto* event = reinterpret_cast<const PM4CmdEventWrite*>(header);
-                break;
-            }
-            default:
-                UNREACHABLE_MSG("Unknown PM4 type 3 opcode {:#x} with count {}",
-                                static_cast<u32>(opcode), header->type3.NumWords());
-            }
-
+        if (header->type == 2) {
+            // Type-2 packet are used for padding purposes
+            next_dw_off = 1;
             acb = NextPacket(acb, next_dw_off);
-
             if constexpr (!is_indirect) {
                 *queue.read_addr += next_dw_off;
                 *queue.read_addr %= queue.ring_size_dw;
             }
+            continue;
         }
 
-        FIBER_EXIT;
+        if (header->type != 3) {
+            // No other types of packets were spotted so far
+            UNREACHABLE_MSG("Invalid PM4 type {}", header->type.Value());
+        }
+
+        const PM4ItOpcode opcode = header->type3.opcode;
+
+        const auto* it_body = reinterpret_cast<const u32*>(header) + 1;
+        switch (opcode) {
+        case PM4ItOpcode::Nop: {
+            const auto* nop = reinterpret_cast<const PM4CmdNop*>(header);
+            break;
+        }
+        case PM4ItOpcode::IndirectBuffer: {
+            const auto* indirect_buffer = reinterpret_cast<const PM4CmdIndirectBuffer*>(header);
+            auto task = ProcessCompute<true>(
+                {indirect_buffer->Address<const u32>(), indirect_buffer->ib_size}, vqid);
+            RESUME_ASC(task, vqid);
+
+            while (!task.handle.done()) {
+                YIELD_ASC(vqid);
+                RESUME_ASC(task, vqid);
+            }
+            break;
+        }
+        case PM4ItOpcode::DmaData: {
+            const auto* dma_data = reinterpret_cast<const PM4DmaData*>(header);
+            if (dma_data->dst_addr_lo == 0x3022C || !rasterizer) {
+                break;
+            }
+            if (dma_data->src_sel == DmaDataSrc::Data && dma_data->dst_sel == DmaDataDst::Gds) {
+                rasterizer->FillBuffer(dma_data->dst_addr_lo, dma_data->NumBytes(), dma_data->data,
+                                       true);
+            } else if ((dma_data->src_sel == DmaDataSrc::Memory ||
+                        dma_data->src_sel == DmaDataSrc::MemoryUsingL2) &&
+                       dma_data->dst_sel == DmaDataDst::Gds) {
+                rasterizer->CopyBuffer(dma_data->dst_addr_lo, dma_data->SrcAddress<VAddr>(),
+                                       dma_data->NumBytes(), true, false);
+            } else if (dma_data->src_sel == DmaDataSrc::Data &&
+                       (dma_data->dst_sel == DmaDataDst::Memory ||
+                        dma_data->dst_sel == DmaDataDst::MemoryUsingL2)) {
+                rasterizer->FillBuffer(dma_data->DstAddress<VAddr>(), dma_data->NumBytes(),
+                                       dma_data->data, false);
+            } else if (dma_data->src_sel == DmaDataSrc::Gds &&
+                       (dma_data->dst_sel == DmaDataDst::Memory ||
+                        dma_data->dst_sel == DmaDataDst::MemoryUsingL2)) {
+                rasterizer->CopyBuffer(dma_data->DstAddress<VAddr>(), dma_data->src_addr_lo,
+                                       dma_data->NumBytes(), false, true);
+            } else if ((dma_data->src_sel == DmaDataSrc::Memory ||
+                        dma_data->src_sel == DmaDataSrc::MemoryUsingL2) &&
+                       (dma_data->dst_sel == DmaDataDst::Memory ||
+                        dma_data->dst_sel == DmaDataDst::MemoryUsingL2)) {
+                const u32 num_bytes = dma_data->NumBytes();
+                const VAddr src_addr = dma_data->SrcAddress<VAddr>();
+                const VAddr dst_addr = dma_data->DstAddress<VAddr>();
+                const PM4Header* header =
+                    reinterpret_cast<const PM4Header*>(dst_addr - sizeof(PM4Header));
+                if (dst_addr >= base_addr && dst_addr < base_addr + acb_size &&
+                    num_bytes == sizeof(PM4CmdDispatchIndirect::GroupDimensions) &&
+                    header->type == 3 && header->type3.opcode == PM4ItOpcode::DispatchDirect) {
+                    indirect_patches.emplace_back(header, src_addr);
+                }
+                rasterizer->CopyBuffer(dst_addr, src_addr, num_bytes, false, false);
+            } else {
+                UNREACHABLE_MSG("WriteData src_sel = {}, dst_sel = {}",
+                                u32(dma_data->src_sel.Value()), u32(dma_data->dst_sel.Value()));
+            }
+            break;
+        }
+        case PM4ItOpcode::AcquireMem: {
+            break;
+        }
+        case PM4ItOpcode::Rewind: {
+            if (!rasterizer) {
+                break;
+            }
+            const PM4CmdRewind* rewind = reinterpret_cast<const PM4CmdRewind*>(header);
+            auto& buffer_cache = rasterizer->GetBufferCache();
+            auto& gpu_modified_ranges_pending = buffer_cache.GetPendingGpuModifiedRanges();
+            const VAddr rewind_addr = reinterpret_cast<VAddr>(acb.data());
+            bool must_flush = false;
+            gpu_modified_ranges_pending.ForEachInRange(
+                rewind_addr, acb.size_bytes(),
+                [&indirect_patches, &must_flush, rewind_header = header](VAddr begin, VAddr end) {
+                    const u32 range_size = end - begin;
+                    if (range_size != sizeof(PM4CmdDispatchIndirect::GroupDimensions)) {
+                        must_flush = true;
+                        return;
+                    }
+                    const PM4Header* header =
+                        reinterpret_cast<const PM4Header*>(begin - sizeof(PM4Header));
+                    if (header->type != 3 || header->type3.opcode != PM4ItOpcode::DispatchDirect) {
+                        must_flush = true;
+                        return;
+                    }
+                    // FIX: Use emplace_back and provide the 'begin' address as the second argument
+                    indirect_patches.emplace_back(header, begin);
+                });
+
+            if (must_flush) {
+                buffer_cache.CommitPendingGpuRanges();
+                rasterizer->CommitPendingGpuRanges();
+
+            } else {
+                // All GPU modified regions in the command list are patched with indirect
+                // dispatches. There is no needed to flush GPU data to CPU so avoiding
+                // read-protecting pages.
+                gpu_modified_ranges_pending.Subtract(rewind_addr, acb.size_bytes());
+            }
+
+            //  ASSERT_MSG(rewind->Valid(), "Rewind valid bit must be set");
+            break;
+        }
+        case PM4ItOpcode::SetShReg: {
+            const auto* set_data = reinterpret_cast<const PM4CmdSetData*>(header);
+            const auto set_size = (header->type3.NumWords() - 1) * sizeof(u32);
+
+            if (set_data->reg_offset >= 0x200 &&
+                set_data->reg_offset <= (0x200 + sizeof(ComputeProgram) / 4)) {
+                ASSERT(set_size <= sizeof(ComputeProgram));
+                auto* addr = reinterpret_cast<u32*>(&mapped_queues[vqid + 1].cs_state) +
+                             (set_data->reg_offset - 0x200);
+                std::memcpy(addr, header + 2, set_size);
+            } else {
+                std::memcpy(&regs.reg_array[Regs::ShRegWordOffset + set_data->reg_offset],
+                            header + 2, set_size);
+            }
+            break;
+        }
+        case PM4ItOpcode::SetQueueReg: {
+            const auto* set_data = reinterpret_cast<const PM4CmdSetQueueReg*>(header);
+            LOG_DEBUG(Render, "Encountered compute SetQueueReg: vqid = {}, reg_offset = {:#x}",
+                      set_data->vqid.Value(), set_data->reg_offset.Value());
+            break;
+        }
+        case PM4ItOpcode::DispatchDirect: {
+            const auto* dispatch_direct = reinterpret_cast<const PM4CmdDispatchDirect*>(header);
+            if (auto it = std::ranges::find(indirect_patches, header, &IndirectPatch::header);
+                it != indirect_patches.end()) {
+                const auto size = sizeof(PM4CmdDispatchIndirect::GroupDimensions);
+                rasterizer->DispatchIndirect(it->indirect_addr, 0, size, true);
+                break;
+            }
+            auto& cs_program = GetCsRegs();
+            cs_program.dim_x = dispatch_direct->dim_x;
+            cs_program.dim_y = dispatch_direct->dim_y;
+            cs_program.dim_z = dispatch_direct->dim_z;
+            cs_program.dispatch_initiator = dispatch_direct->dispatch_initiator;
+            if (DebugState.DumpingCurrentReg()) {
+                DebugState.PushRegsDumpCompute(base_addr, reinterpret_cast<uintptr_t>(header),
+                                               cs_program);
+            }
+            if (rasterizer && (cs_program.dispatch_initiator & 1)) {
+                const auto cmd_address = reinterpret_cast<const void*>(header);
+                if (host_markers_enabled) {
+                    rasterizer->ScopeMarkerBegin(
+                        fmt::format("asc[{}]:{}:DispatchDirect", vqid, cmd_address));
+                    rasterizer->DispatchDirect();
+                    rasterizer->ScopeMarkerEnd();
+                } else {
+                    rasterizer->DispatchDirect();
+                }
+            }
+            break;
+        }
+        case PM4ItOpcode::DispatchIndirect: {
+            const auto* dispatch_indirect =
+                reinterpret_cast<const PM4CmdDispatchIndirectMec*>(header);
+            auto& cs_program = GetCsRegs();
+            const auto ib_address = dispatch_indirect->Address<VAddr>();
+            const auto size = sizeof(PM4CmdDispatchIndirect::GroupDimensions);
+            cs_program.dispatch_initiator = dispatch_indirect->dispatch_initiator;
+            if (DebugState.DumpingCurrentReg()) {
+                DebugState.PushRegsDumpCompute(base_addr, reinterpret_cast<uintptr_t>(header),
+                                               cs_program);
+            }
+            if (rasterizer && (cs_program.dispatch_initiator & 1)) {
+                const auto cmd_address = reinterpret_cast<const void*>(header);
+                if (host_markers_enabled) {
+                    rasterizer->ScopeMarkerBegin(
+                        fmt::format("asc[{}]:{}:DispatchIndirect", vqid, cmd_address));
+                    rasterizer->DispatchIndirect(ib_address, 0, size, true);
+                    rasterizer->ScopeMarkerEnd();
+                } else {
+                    rasterizer->DispatchIndirect(ib_address, 0, size, false);
+                }
+            }
+            break;
+        }
+        case PM4ItOpcode::WriteData: {
+            const auto* write_data = reinterpret_cast<const PM4CmdWriteData*>(header);
+            ASSERT(write_data->dst_sel.Value() == 2 || write_data->dst_sel.Value() == 5);
+            const u32 data_size = (header->type3.count.Value() - 2) * 4;
+            if (data_size <= sizeof(u64) && rasterizer) {
+                rasterizer->CommitPendingGpuRanges();
+            }
+            if (!write_data->wr_one_addr.Value()) {
+                std::memcpy(write_data->Address<void*>(), write_data->data, data_size);
+            } else {
+                UNREACHABLE();
+            }
+            break;
+        }
+        case PM4ItOpcode::MemSemaphore: {
+            const auto* mem_semaphore = reinterpret_cast<const PM4CmdMemSemaphore*>(header);
+            if (mem_semaphore->IsSignaling()) {
+                mem_semaphore->Signal();
+            } else {
+                while (!mem_semaphore->Signaled()) {
+                    YIELD_ASC(vqid);
+                }
+                mem_semaphore->Decrement();
+            }
+            break;
+        }
+        case PM4ItOpcode::WaitRegMem: {
+            const auto* wait_reg_mem = reinterpret_cast<const PM4CmdWaitRegMem*>(header);
+            ASSERT(wait_reg_mem->engine.Value() == PM4CmdWaitRegMem::Engine::Me);
+            while (!wait_reg_mem->Test(regs.reg_array)) {
+                YIELD_ASC(vqid);
+            }
+            break;
+        }
+        case PM4ItOpcode::ReleaseMem: {
+            const auto* release_mem = reinterpret_cast<const PM4CmdReleaseMem*>(header);
+            if (rasterizer) {
+                rasterizer->CommitPendingGpuRanges();
+            }
+            release_mem->SignalFence(
+                [pipe_id = queue.pipe_id] {
+                    Platform::IrqC::Instance()->Signal(static_cast<Platform::InterruptId>(pipe_id));
+                },
+                [this](VAddr dst, u16 gds_index, u16 num_dwords) {
+                    rasterizer->CopyBuffer(dst, gds_index, num_dwords * sizeof(u32), false, true);
+                });
+            break;
+        }
+        case PM4ItOpcode::EventWrite: {
+            // const auto* event = reinterpret_cast<const PM4CmdEventWrite*>(header);
+            break;
+        }
+        default:
+            UNREACHABLE_MSG("Unknown PM4 type 3 opcode {:#x} with count {}",
+                            static_cast<u32>(opcode), header->type3.NumWords());
+        }
+
+        acb = NextPacket(acb, next_dw_off);
+
+        if constexpr (!is_indirect) {
+            *queue.read_addr += next_dw_off;
+            *queue.read_addr %= queue.ring_size_dw;
+        }
     }
 
-    Liverpool::CmdBuffer Liverpool::CopyCmdBuffers(std::span<const u32> dcb,
-                                                   std::span<const u32> ccb) {
-        auto& queue = mapped_queues[GfxQueueId];
-        ASSERT_MSG(queue.dcb_buffer.capacity() >= queue.dcb_buffer_offset + dcb.size(),
-                   "dcb copy buffer out of reserved space");
-        ASSERT_MSG(queue.ccb_buffer.capacity() >= queue.ccb_buffer_offset + ccb.size(),
-                   "ccb copy buffer out of reserved space");
+    FIBER_EXIT;
+}
 
-        queue.dcb_buffer.resize(
-            std::max(queue.dcb_buffer.size(), queue.dcb_buffer_offset + dcb.size()));
-        queue.ccb_buffer.resize(
-            std::max(queue.ccb_buffer.size(), queue.ccb_buffer_offset + ccb.size()));
+Liverpool::CmdBuffer Liverpool::CopyCmdBuffers(std::span<const u32> dcb, std::span<const u32> ccb) {
+    auto& queue = mapped_queues[GfxQueueId];
+    ASSERT_MSG(queue.dcb_buffer.capacity() >= queue.dcb_buffer_offset + dcb.size(),
+               "dcb copy buffer out of reserved space");
+    ASSERT_MSG(queue.ccb_buffer.capacity() >= queue.ccb_buffer_offset + ccb.size(),
+               "ccb copy buffer out of reserved space");
 
-        const u32 prev_dcb_buffer_offset = queue.dcb_buffer_offset;
-        const u32 prev_ccb_buffer_offset = queue.ccb_buffer_offset;
-        if (!dcb.empty()) {
-            std::memcpy(queue.dcb_buffer.data() + queue.dcb_buffer_offset, dcb.data(),
-                        dcb.size_bytes());
-            queue.dcb_buffer_offset += dcb.size();
-            dcb = std::span<const u32>{queue.dcb_buffer.begin() + prev_dcb_buffer_offset,
-                                       queue.dcb_buffer.begin() + queue.dcb_buffer_offset};
-        }
+    queue.dcb_buffer.resize(
+        std::max(queue.dcb_buffer.size(), queue.dcb_buffer_offset + dcb.size()));
+    queue.ccb_buffer.resize(
+        std::max(queue.ccb_buffer.size(), queue.ccb_buffer_offset + ccb.size()));
 
-        if (!ccb.empty()) {
-            std::memcpy(queue.ccb_buffer.data() + queue.ccb_buffer_offset, ccb.data(),
-                        ccb.size_bytes());
-            queue.ccb_buffer_offset += ccb.size();
-            ccb = std::span<const u32>{queue.ccb_buffer.begin() + prev_ccb_buffer_offset,
-                                       queue.ccb_buffer.begin() + queue.ccb_buffer_offset};
-        }
-
-        return std::make_pair(dcb, ccb);
+    const u32 prev_dcb_buffer_offset = queue.dcb_buffer_offset;
+    const u32 prev_ccb_buffer_offset = queue.ccb_buffer_offset;
+    if (!dcb.empty()) {
+        std::memcpy(queue.dcb_buffer.data() + queue.dcb_buffer_offset, dcb.data(),
+                    dcb.size_bytes());
+        queue.dcb_buffer_offset += dcb.size();
+        dcb = std::span<const u32>{queue.dcb_buffer.begin() + prev_dcb_buffer_offset,
+                                   queue.dcb_buffer.begin() + queue.dcb_buffer_offset};
     }
 
-    void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
-        auto& queue = mapped_queues[GfxQueueId];
+    if (!ccb.empty()) {
+        std::memcpy(queue.ccb_buffer.data() + queue.ccb_buffer_offset, ccb.data(),
+                    ccb.size_bytes());
+        queue.ccb_buffer_offset += ccb.size();
+        ccb = std::span<const u32>{queue.ccb_buffer.begin() + prev_ccb_buffer_offset,
+                                   queue.ccb_buffer.begin() + queue.ccb_buffer_offset};
+    }
 
-        static std::atomic<u32> submit_count{0};
-        const u32 n = submit_count.fetch_add(1);
-        const bool copy_enabled = Config::copyGPUCmdBuffers();
+    return std::make_pair(dcb, ccb);
+}
 
+void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
+    auto& queue = mapped_queues[GfxQueueId];
+
+    static std::atomic<u32> submit_count{0};
+    const u32 n = submit_count.fetch_add(1);
+    const bool copy_enabled = Config::copyGPUCmdBuffers();
+
+    if (n < 5) {
+        LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}",
+                  copy_enabled ? "TRUE" : "FALSE");
+        LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMIT_GFX_CALLED #{} dcb_size={} ccb_size={}", n,
+                  dcb.size(), ccb.size());
+    }
+
+    if (Config::copyGPUCmdBuffers()) {
         if (n < 5) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}",
-                      copy_enabled ? "TRUE" : "FALSE");
-            LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMIT_GFX_CALLED #{} dcb_size={} ccb_size={}", n,
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}", n,
                       dcb.size(), ccb.size());
         }
-
-        if (Config::copyGPUCmdBuffers()) {
-            if (n < 5) {
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}", n,
-                          dcb.size(), ccb.size());
-            }
-            std::tie(dcb, ccb) = CopyCmdBuffers(dcb, ccb);
-            if (n < 5) {
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}",
-                          n, dcb.size(), ccb.size());
-            }
+        std::tie(dcb, ccb) = CopyCmdBuffers(dcb, ccb);
+        if (n < 5) {
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}", n,
+                      dcb.size(), ccb.size());
         }
-
-        auto task = ProcessGraphics(dcb, ccb);
-        {
-            std::scoped_lock lock{queue.m_access};
-            queue.submits.emplace(task.handle);
-        }
-
-        std::scoped_lock lk{submit_mutex};
-        ++num_submits;
-        submit_cv.notify_one();
     }
 
-    void Liverpool::SubmitAsc(u32 gnm_vqid, std::span<const u32> acb) {
-        ASSERT_MSG(gnm_vqid > 0 && gnm_vqid < NumTotalQueues, "Invalid virtual ASC queue index");
-        auto& queue = mapped_queues[gnm_vqid];
-
-        const auto vqid = gnm_vqid - 1;
-        const auto& task = ProcessCompute(acb, vqid);
-        {
-            std::scoped_lock lock{queue.m_access};
-            queue.submits.emplace(task.handle);
-        }
-
-        std::scoped_lock lk{submit_mutex};
-        num_mapped_queues = std::max(num_mapped_queues, gnm_vqid + 1);
-        ++num_submits;
-        submit_cv.notify_one();
+    auto task = ProcessGraphics(dcb, ccb);
+    {
+        std::scoped_lock lock{queue.m_access};
+        queue.submits.emplace(task.handle);
     }
+
+    std::scoped_lock lk{submit_mutex};
+    ++num_submits;
+    submit_cv.notify_one();
+}
+
+void Liverpool::SubmitAsc(u32 gnm_vqid, std::span<const u32> acb) {
+    ASSERT_MSG(gnm_vqid > 0 && gnm_vqid < NumTotalQueues, "Invalid virtual ASC queue index");
+    auto& queue = mapped_queues[gnm_vqid];
+
+    const auto vqid = gnm_vqid - 1;
+    const auto& task = ProcessCompute(acb, vqid);
+    {
+        std::scoped_lock lock{queue.m_access};
+        queue.submits.emplace(task.handle);
+    }
+
+    std::scoped_lock lk{submit_mutex};
+    num_mapped_queues = std::max(num_mapped_queues, gnm_vqid + 1);
+    ++num_submits;
+    submit_cv.notify_one();
+}
 
 } // namespace AmdGpu
