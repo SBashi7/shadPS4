@@ -23,7 +23,7 @@ if (ENABLE_LTO)
 endif()
 
 # KNACK diag build
- CXX C ASM ${ADDITIONAL_LANGUAGES})
+project(shadPS4 CXX C ASM ${ADDITIONAL_LANGUAGES})
 
 # Forcing PIE makes sure that the base address is high enough so that it doesn't clash with the PS4 memory.
 if(UNIX AND NOT APPLE)
