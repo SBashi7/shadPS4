@@ -2203,6 +2203,19 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
               "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
               count - 1, count, size_dw, fmt::ptr(cmdbuf));
 
+    // Register flip metadata for fallback scan
+    {
+        extern void KnackRegisterFlipMeta(u32 flip_id, u32 buf_idx, u32 vo_handle, u32 dcb_size,
+                                          uintptr_t label_addr);
+        uintptr_t label_addr = 0;
+        VideoOut::sceVideoOutGetBufferLabelAddress(vo_handle, &label_addr);
+        label_addr += buf_idx * sizeof(uintptr_t);
+        KnackRegisterFlipMeta(fid, buf_idx, vo_handle, size_dw, label_addr);
+        LOG_ERROR(Lib_GnmDriver,
+                  "KNACK_FLIP_META_CREATE flip_id={} buf={} label_addr={:p} dcb_size={}", fid,
+                  buf_idx, fmt::ptr(reinterpret_cast<void*>(label_addr)), size_dw);
+    }
+
     const s32 patch_result =
         PatchFlipRequest(cmdbuf, size_dw, vo_handle, buf_idx, flip_mode, flip_arg, nullptr /*unk*/);
     if (patch_result != ORBIS_OK) {
