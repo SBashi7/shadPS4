@@ -69,15 +69,6 @@ std::condition_variable cv_lock{};
 std::mutex m_submission{};
 static u64 frames_submitted{};      // frame counter
 static bool send_init_packet{true}; // initialize HW state before first game's submit in a frame
-
-// KNACK flip metadata (defined here, accessed by liverpool via extern)
-u32 knack_flip_meta_submit_id[16]{};
-u32 knack_flip_meta_flip_id[16]{};
-u32 knack_flip_meta_buf_idx[16]{};
-u32 knack_flip_meta_dcb_size[16]{};
-uintptr_t knack_flip_meta_label_addr[16]{};
-std::atomic<u32> knack_flip_meta_count{};
-std::atomic<u32> knack_flip_meta_submit_index{};
 static s32 sdk_version{0};
 
 static u32 asc_next_offs_dw[Liverpool::NumComputeRings];
@@ -2211,26 +2202,6 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
     LOG_ERROR(Lib_GnmDriver,
               "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
               count - 1, count, size_dw, fmt::ptr(cmdbuf));
-
-    // Register flip metadata for fallback scan
-    {
-        uintptr_t label_addr = 0;
-        VideoOut::sceVideoOutGetBufferLabelAddress(vo_handle, &label_addr);
-        label_addr += buf_idx * sizeof(uintptr_t);
-
-        const u32 idx = knack_flip_meta_count.fetch_add(1);
-        if (idx < 16) {
-            knack_flip_meta_submit_id[idx] = knack_flip_meta_submit_index.load();
-            knack_flip_meta_flip_id[idx] = fid;
-            knack_flip_meta_buf_idx[idx] = buf_idx;
-            knack_flip_meta_dcb_size[idx] = size_dw;
-            knack_flip_meta_label_addr[idx] = label_addr;
-        }
-
-        LOG_ERROR(Lib_GnmDriver,
-                  "KNACK_FLIP_META_CREATE flip_id={} buf={} label_addr={:p} dcb_size={}", fid,
-                  buf_idx, fmt::ptr(reinterpret_cast<void*>(label_addr)), size_dw);
-    }
 
     const s32 patch_result =
         PatchFlipRequest(cmdbuf, size_dw, vo_handle, buf_idx, flip_mode, flip_arg, nullptr /*unk*/);

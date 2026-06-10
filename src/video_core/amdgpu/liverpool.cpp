@@ -24,15 +24,6 @@
 
 namespace AmdGpu {
 
-// KNACK: import flip metadata from gnmdriver (global ::Libraries::GnmDriver namespace)
-using ::Libraries::GnmDriver::knack_flip_meta_buf_idx;
-using ::Libraries::GnmDriver::knack_flip_meta_count;
-using ::Libraries::GnmDriver::knack_flip_meta_dcb_size;
-using ::Libraries::GnmDriver::knack_flip_meta_flip_id;
-using ::Libraries::GnmDriver::knack_flip_meta_label_addr;
-using ::Libraries::GnmDriver::knack_flip_meta_submit_id;
-using ::Libraries::GnmDriver::knack_flip_meta_submit_index;
-
 static const char* dcb_task_name{"DCB_TASK"};
 static const char* ccb_task_name{"CCB_TASK"};
 
@@ -330,30 +321,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
               initial_dcb_size);
     LOG_ERROR(Lib_GnmDriver, "KNACK_GPU_TASK_ACTIVE submit={}", this_submit);
 
-    // KNACK: run fallback PatchedFlip scan BEFORE processing (in case WaitRegMem blocks later)
-    // Look up flip metadata for this submit
-    u32 flip_buf_idx = 0;
-    u32 flip_flip_id = 0;
-    uintptr_t flip_label_addr = 0;
-    bool has_flip_meta = false;
-    for (u32 i = 0; i < knack_flip_meta_count.load() && i < 16; ++i) {
-        if (knack_flip_meta_submit_id[i] == this_submit) {
-            flip_flip_id = knack_flip_meta_flip_id[i];
-            flip_buf_idx = knack_flip_meta_buf_idx[i];
-            flip_label_addr = knack_flip_meta_label_addr[i];
-            has_flip_meta = true;
-            break;
-        }
-    }
-    if (has_flip_meta) {
-        LOG_ERROR(Lib_GnmDriver,
-                  "KNACK_FLIP_META_PROCESS submit={} flip_id={} buf={} label_addr={:p}",
-                  this_submit, flip_flip_id, flip_buf_idx,
-                  fmt::ptr(reinterpret_cast<void*>(flip_label_addr)));
-    }
+    // KNACK: fallback PatchedFlip scan at ProcessGraphics entry
     if (initial_dcb_size >= 64) {
-        LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_BEGIN submit={} dcb_size={}", this_submit,
-                  initial_dcb_size);
         const u32* scan = initial_dcb_data;
         bool found = false;
         size_t found_off = 0;
