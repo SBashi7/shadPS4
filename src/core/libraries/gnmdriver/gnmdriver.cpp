@@ -2205,25 +2205,25 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
 
     // Register flip metadata for fallback scan (access liverpool extern arrays directly)
     {
-        extern u32 knack_flip_meta_submit_id[16];
-        extern u32 knack_flip_meta_flip_id[16];
-        extern u32 knack_flip_meta_buf_idx[16];
-        extern u32 knack_flip_meta_dcb_size[16];
-        extern uintptr_t knack_flip_meta_label_addr[16];
-        extern std::atomic<u32> knack_flip_meta_count;
-        extern std::atomic<u32> knack_submit_index;
+        extern u32 ::knack_flip_meta_submit_id[16];
+        extern u32 ::knack_flip_meta_flip_id[16];
+        extern u32 ::knack_flip_meta_buf_idx[16];
+        extern u32 ::knack_flip_meta_dcb_size[16];
+        extern uintptr_t ::knack_flip_meta_label_addr[16];
+        extern std::atomic<u32> ::knack_flip_meta_count;
+        extern std::atomic<u32> ::knack_submit_index;
 
         uintptr_t label_addr = 0;
         VideoOut::sceVideoOutGetBufferLabelAddress(vo_handle, &label_addr);
         label_addr += buf_idx * sizeof(uintptr_t);
 
-        const u32 idx = knack_flip_meta_count.fetch_add(1);
+        const u32 idx = ::knack_flip_meta_count.fetch_add(1);
         if (idx < 16) {
-            knack_flip_meta_submit_id[idx] = knack_submit_index.load();
-            knack_flip_meta_flip_id[idx] = fid;
-            knack_flip_meta_buf_idx[idx] = buf_idx;
-            knack_flip_meta_dcb_size[idx] = size_dw;
-            knack_flip_meta_label_addr[idx] = label_addr;
+            ::knack_flip_meta_submit_id[idx] = ::knack_submit_index.load();
+            ::knack_flip_meta_flip_id[idx] = fid;
+            ::knack_flip_meta_buf_idx[idx] = buf_idx;
+            ::knack_flip_meta_dcb_size[idx] = size_dw;
+            ::knack_flip_meta_label_addr[idx] = label_addr;
         }
 
         LOG_ERROR(Lib_GnmDriver,
