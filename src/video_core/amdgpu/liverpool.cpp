@@ -318,6 +318,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
     LOG_ERROR(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_ENTER submit={} dcb_size={}", this_submit,
               initial_dcb_size);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_GPU_TASK_ACTIVE submit={}", this_submit);
 
     // Dump first 128 dwords for trace-enabled submits
     if (trace_enabled) {
@@ -339,10 +340,36 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     }
 
     while (!dcb.empty()) {
+        if (this_submit == 3) {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_PG_BEFORE_PROCESSCOMMANDS submit=3");
+        }
         ProcessCommands();
+
+        if (this_submit == 3) {
+            LOG_ERROR(Lib_GnmDriver, "KNACK_PG_AFTER_PROCESSCOMMANDS submit=3");
+        }
 
         const auto* header = reinterpret_cast<const PM4Header*>(dcb.data());
         const u32 type = header->type;
+
+        // Per-packet logging for submit #3
+        if (this_submit == 3 && packet_index < TRACE_MAX_PACKETS) {
+            const size_t off =
+                reinterpret_cast<const u32*>(header) - reinterpret_cast<const u32*>(base_addr);
+            u32 t3_opcode = 0;
+            u32 t3_count = 0;
+            u32 t3_total = 0;
+            if (type == 3) {
+                t3_opcode = static_cast<u32>(header->type3.opcode.Value());
+                t3_count = header->type3.NumWords();
+                t3_total = t3_count + 1;
+            }
+            LOG_ERROR(Lib_GnmDriver,
+                      "KNACK_PG_PACKET_BEGIN submit=3 pkt={} offset={} rem={} header=0x{:08x} "
+                      "type={} opcode={} count={} total_dw={}",
+                      packet_index, off, dcb.size(), header->raw, type, t3_opcode, t3_count,
+                      t3_total);
+        }
 
         // Per-packet trace
         if (trace_enabled && packet_index < TRACE_MAX_PACKETS) {
@@ -1074,19 +1101,42 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             case PM4ItOpcode::WaitRegMem: {
                 LOG_ERROR(Lib_GnmDriver, "KNACK_WAITREGMEM_CALLED");
                 const auto* wait_reg_mem = reinterpret_cast<const PM4CmdWaitRegMem*>(header);
-                // ASSERT(wait_reg_mem->engine.Value() == PM4CmdWaitRegMem::Engine::Me);
+                const u64* wait_addr = wait_reg_mem->Address<u64*>();
+                if (this_submit == 3) {
+                    LOG_ERROR(Lib_GnmDriver,
+                              "KNACK_WAITREGMEM_ENTER submit=3 offset={} addr={:p} func={} "
+                              "ref={} mask={} poll_interval={}",
+                              reinterpret_cast<const u32*>(header) -
+                                  reinterpret_cast<const u32*>(base_addr),
+                              fmt::ptr(wait_addr), u32(wait_reg_mem->function.Value()),
+                              wait_reg_mem->reference.Value(), wait_reg_mem->mask.Value(),
+                              wait_reg_mem->poll_interval.Value());
+                }
                 // Optimization: VO label waits are special because the emulator
                 // will write to the label when presentation is finished. So if
                 // there are no other submits to yield to we can sleep the thread
                 // instead and allow other tasks to run.
-                const u64* wait_addr = wait_reg_mem->Address<u64*>();
                 if (vo_port->IsVoLabel(wait_addr) &&
                     num_submits == mapped_queues[GfxQueueId].submits.size()) {
+                    if (this_submit == 3) {
+                        LOG_ERROR(Lib_GnmDriver, "KNACK_WAITREGMEM_VO_LABEL_WAIT submit=3");
+                    }
                     vo_port->WaitVoLabel([&] { return wait_reg_mem->Test(regs.reg_array); });
                     break;
                 }
                 while (!wait_reg_mem->Test(regs.reg_array)) {
                     YIELD_GFX();
+                    if (this_submit == 3) {
+                        static u32 yield_count_3 = 0;
+                        if (++yield_count_3 % 1000 == 0) {
+                            LOG_ERROR(Lib_GnmDriver,
+                                      "KNACK_WAITREGMEM_STILL_WAITING submit=3 yields={}",
+                                      yield_count_3);
+                        }
+                    }
+                }
+                if (this_submit == 3) {
+                    LOG_ERROR(Lib_GnmDriver, "KNACK_WAITREGMEM_EXIT submit=3");
                 }
                 break;
             }
@@ -1195,6 +1245,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     }
 
     LOG_ERROR(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_EXIT submit={}", this_submit);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_GPU_TASK_FINISHED submit={}", this_submit);
 
     FIBER_EXIT;
 }
