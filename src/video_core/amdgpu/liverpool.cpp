@@ -37,13 +37,16 @@ static constexpr u32 KNACK_DIAG_SUMMARY_INTERVAL = 100;
 // KNACK per-packet trace
 static std::atomic<u32> knack_submit_index{0};
 
-// KNACK flip metadata for fallback scan (separate arrays for external access)
-u32 knack_flip_meta_submit_id[16]{};
-u32 knack_flip_meta_flip_id[16]{};
-u32 knack_flip_meta_buf_idx[16]{};
-u32 knack_flip_meta_dcb_size[16]{};
-uintptr_t knack_flip_meta_label_addr[16]{};
-std::atomic<u32> knack_flip_meta_count{0};
+// KNACK flip metadata for fallback scan (defined in gnmdriver.cpp)
+namespace Libraries::GnmDriver {
+extern u32 knack_flip_meta_submit_id[16];
+extern u32 knack_flip_meta_flip_id[16];
+extern u32 knack_flip_meta_buf_idx[16];
+extern u32 knack_flip_meta_dcb_size[16];
+extern uintptr_t knack_flip_meta_label_addr[16];
+extern std::atomic<u32> knack_flip_meta_count;
+extern std::atomic<u32> knack_flip_meta_submit_index;
+} // namespace Libraries::GnmDriver
 struct PacketTraceEntry {
     u32 packet_index = 0;
     size_t offset_dwords = 0;
@@ -334,11 +337,11 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     u32 flip_flip_id = 0;
     uintptr_t flip_label_addr = 0;
     bool has_flip_meta = false;
-    for (u32 i = 0; i < knack_flip_meta_count.load() && i < 16; ++i) {
-        if (knack_flip_meta_submit_id[i] == this_submit) {
-            flip_flip_id = knack_flip_meta_flip_id[i];
-            flip_buf_idx = knack_flip_meta_buf_idx[i];
-            flip_label_addr = knack_flip_meta_label_addr[i];
+    for (u32 i = 0; i < Libraries::GnmDriver::knack_flip_meta_count.load() && i < 16; ++i) {
+        if (Libraries::GnmDriver::knack_flip_meta_submit_id[i] == this_submit) {
+            flip_flip_id = Libraries::GnmDriver::knack_flip_meta_flip_id[i];
+            flip_buf_idx = Libraries::GnmDriver::knack_flip_meta_buf_idx[i];
+            flip_label_addr = Libraries::GnmDriver::knack_flip_meta_label_addr[i];
             has_flip_meta = true;
             break;
         }
