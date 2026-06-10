@@ -85,8 +85,10 @@ static void ResetSubmissionLock(Platform::InterruptId irq) {
 
 static void WaitGpuIdle() {
     HLE_TRACE;
+    LOG_ERROR(Lib_GnmDriver, "KNACK_WAIT_GPU_IDLE_ENTER");
     std::unique_lock lock{m_submission};
     cv_lock.wait(lock, [] { return submission_lock == 0; });
+    LOG_ERROR(Lib_GnmDriver, "KNACK_WAIT_GPU_IDLE_EXIT");
 }
 
 // Write a special ending NOP packet with N DWs data block
@@ -292,6 +294,8 @@ int PS4_SYSV_ABI sceGnmDestroyWorkloadStream() {
 void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
     HLE_TRACE;
     LOG_DEBUG(Lib_GnmDriver, "vqid {}, offset_dw {}", gnm_vqid, next_offs_dw);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_DINGDONG_CALLED vqid={} next_offs_dw={}", gnm_vqid,
+              next_offs_dw);
 
     if (gnm_vqid == 0) {
         return;
@@ -2171,6 +2175,10 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffers(u32 count, u32* dcb_gpu_addrs
 s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
     u32 workload, u32 count, u32* dcb_gpu_addrs[], u32* dcb_sizes_in_bytes, u32* ccb_gpu_addrs[],
     u32* ccb_sizes_in_bytes, u32 vo_handle, u32 buf_idx, u32 flip_mode, s64 flip_arg) {
+    static std::atomic<u32> knack_flip_id{0};
+    const u32 fid = knack_flip_id.fetch_add(1);
+    LOG_ERROR(Lib_GnmDriver, "KNACK_FLIP_SUBMIT_CALLED flip_id={} buf={} vo_handle={}", fid,
+              buf_idx, vo_handle);
     LOG_DEBUG(Lib_GnmDriver, "called [buf = {}]", buf_idx);
 
     auto* cmdbuf = dcb_gpu_addrs[count - 1];
