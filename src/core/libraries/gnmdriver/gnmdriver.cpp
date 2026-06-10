@@ -2205,12 +2205,35 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
 
     // Register flip metadata for fallback scan
     {
-        extern void KnackRegisterFlipMeta(u32 flip_id, u32 buf_idx, u32 vo_handle, u32 dcb_size,
-                                          uintptr_t label_addr);
+        struct KnackFlipMeta {
+            u32 submit_id = 0;
+            u32 flip_id = 0;
+            u32 buf_idx = 0;
+            u32 vo_handle = 0;
+            u32 dcb_size = 0;
+            uintptr_t label_addr = 0;
+            bool is_submit_and_flip = false;
+        };
+        extern KnackFlipMeta knack_flip_meta[16];
+        extern std::atomic<u32> knack_flip_meta_count;
+        extern std::atomic<u32> knack_submit_index;
+
         uintptr_t label_addr = 0;
         VideoOut::sceVideoOutGetBufferLabelAddress(vo_handle, &label_addr);
         label_addr += buf_idx * sizeof(uintptr_t);
-        ::KnackRegisterFlipMeta(fid, buf_idx, vo_handle, size_dw, label_addr);
+
+        const u32 idx = knack_flip_meta_count.fetch_add(1);
+        if (idx < 16) {
+            auto& m = knack_flip_meta[idx];
+            m.submit_id = knack_submit_index.load();
+            m.flip_id = fid;
+            m.buf_idx = buf_idx;
+            m.vo_handle = vo_handle;
+            m.dcb_size = size_dw;
+            m.label_addr = label_addr;
+            m.is_submit_and_flip = true;
+        }
+
         LOG_ERROR(Lib_GnmDriver,
                   "KNACK_FLIP_META_CREATE flip_id={} buf={} label_addr={:p} dcb_size={}", fid,
                   buf_idx, fmt::ptr(reinterpret_cast<void*>(label_addr)), size_dw);

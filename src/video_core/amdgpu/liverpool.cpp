@@ -48,23 +48,8 @@ struct KnackFlipMeta {
     bool is_submit_and_flip = false;
 };
 static constexpr u32 KNACK_FLIP_META_MAX = 16;
-static KnackFlipMeta knack_flip_meta[KNACK_FLIP_META_MAX];
-static std::atomic<u32> knack_flip_meta_count{0};
-
-void KnackRegisterFlipMeta(u32 flip_id, u32 buf_idx, u32 vo_handle, u32 dcb_size,
-                           uintptr_t label_addr) {
-    const u32 idx = knack_flip_meta_count.fetch_add(1);
-    if (idx < KNACK_FLIP_META_MAX) {
-        auto& m = knack_flip_meta[idx];
-        m.submit_id = knack_submit_index.load();
-        m.flip_id = flip_id;
-        m.buf_idx = buf_idx;
-        m.vo_handle = vo_handle;
-        m.dcb_size = dcb_size;
-        m.label_addr = label_addr;
-        m.is_submit_and_flip = true;
-    }
-}
+KnackFlipMeta knack_flip_meta[KNACK_FLIP_META_MAX];
+std::atomic<u32> knack_flip_meta_count{0};
 struct PacketTraceEntry {
     u32 packet_index = 0;
     size_t offset_dwords = 0;
