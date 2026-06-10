@@ -2210,7 +2210,7 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
         uintptr_t label_addr = 0;
         VideoOut::sceVideoOutGetBufferLabelAddress(vo_handle, &label_addr);
         label_addr += buf_idx * sizeof(uintptr_t);
-        KnackRegisterFlipMeta(fid, buf_idx, vo_handle, size_dw, label_addr);
+        ::KnackRegisterFlipMeta(fid, buf_idx, vo_handle, size_dw, label_addr);
         LOG_ERROR(Lib_GnmDriver,
                   "KNACK_FLIP_META_CREATE flip_id={} buf={} label_addr={:p} dcb_size={}", fid,
                   buf_idx, fmt::ptr(reinterpret_cast<void*>(label_addr)), size_dw);
