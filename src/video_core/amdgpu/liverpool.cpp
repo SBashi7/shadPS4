@@ -505,9 +505,21 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         }
 
         switch (type) {
-        default:
-            dcb = NextPacket(dcb, 1); // KNACK: skip unknown packet type, don't infinite loop
+        default: {
+            // KNACK: stop buffer after too many unknown types to prevent exit freeze
+            // Use a per-call static that resets on ProcessGraphics exit
+            static u32 unknown_skip_buf = 0;
+            if (packet_index == 0) unknown_skip_buf = 0;
+            unknown_skip_buf++;
+            if (unknown_skip_buf > 5000) {
+                LOG_ERROR(Lib_GnmDriver, "KNACK_UNKNOWN_TYPE_STOP buf_skips={}", unknown_skip_buf);
+                unknown_skip_buf = 0;
+                dcb = {};
+                break;
+            }
+            dcb = NextPacket(dcb, 1);
             continue;
+        }
         case 0: {
             const u32 count = knack_pm4_type0_count.fetch_add(1);
             const bool full_dump = count < KNACK_DIAG_MAX_FULL_DUMPS;
