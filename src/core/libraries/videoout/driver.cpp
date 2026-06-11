@@ -270,7 +270,7 @@ void VideoOutDriver::Flip(const Request& req) {
     // Trigger flip events for the port.
     for (auto& event : port->flip_events) {
         if (event != nullptr) {
-            LOG_ERROR(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_EVENT_TRIGGERED");
+            LOG_DEBUG(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_EVENT_TRIGGERED");
             event->TriggerEvent(
                 static_cast<u64>(OrbisVideoOutInternalEventId::Flip),
                 Kernel::OrbisKernelEvent::Filter::VideoOut,
