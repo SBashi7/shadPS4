@@ -234,8 +234,13 @@ Liverpool::Task Liverpool::ProcessCeUpdate(std::span<const u32> ccb) {
         const auto* header = reinterpret_cast<const PM4Header*>(ccb.data());
         const u32 type = header->type;
         if (type != 3) {
-            // No other types of packets were spotted so far
-            UNREACHABLE_MSG("Invalid PM4 type {}", type);
+            // KNACK: skip unknown types instead of crashing
+            if (ccb.size() <= 50) {
+                ccb = {};
+            } else {
+                ccb = NextPacket(ccb, 1);
+            }
+            continue;
         }
 
         const PM4ItOpcode opcode = header->type3.opcode;
@@ -587,8 +592,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     if (zero_count >= check_n / 2) {
                         LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD_SKIP_TAIL zeros={}/{}",
                                   zero_count, check_n - 2);
-                        LOG_ERROR(
-                            Lib_GnmDriver,
+                        LOG_DEBUG(Lib_GnmDriver,
                             "KNACK_PROCESSGRAPHICS_EARLY_STOP submit={} reason=overflow_guard "
                             "offset={} rem={} header=0x{:08x}",
                             this_submit,
