@@ -493,10 +493,15 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         }
 
         switch (type) {
-        default:
-            // KNACK: unknown packet type — stop buffer cleanly
-            dcb = {};
+        default: {
+            // KNACK: skip a few unknown packets, then stop to prevent freeze
+            if (dcb.size() <= 50) {
+                dcb = {};
+            } else {
+                dcb = NextPacket(dcb, 1);
+            }
             continue;
+        }
         case 0: {
             const u32 count = knack_pm4_type0_count.fetch_add(1);
             const bool full_dump = count < KNACK_DIAG_MAX_FULL_DUMPS;
