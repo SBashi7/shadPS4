@@ -340,6 +340,48 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                       this_submit, found_off, scan[found_off], scan[found_off + 1]);
             LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_FALLBACK_SIGNAL submit={}", this_submit);
             Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+
+            // Also directly reset the VO label to break circular deadlock
+            // The flip WriteData is 5 dwords before the Nop (count=3, total 5 dwords)
+            if (found_off >= 5) {
+                const u32 wd_header = scan[found_off - 5];
+                const u32 wd_count = (wd_header >> 16) & 0x3FFF;
+                const u32 wd_opcode = (wd_header >> 8) & 0xFF;
+                if (wd_opcode == 0x37 && wd_count >= 3) {
+                    const u32 addr_lo = scan[found_off - 4];
+                    const u32 addr_hi = scan[found_off - 3];
+                    const u64 label_addr64 =
+                        (static_cast<u64>(addr_hi) << 32) | static_cast<u64>(addr_lo);
+                    const u32 old_val = scan[found_off - 2];
+                    LOG_ERROR(Lib_GnmDriver,
+                              "KNACK_VO_LABEL_FALLBACK_ENTER submit={} label_addr={:p} old_val={}",
+                              this_submit, fmt::ptr(reinterpret_cast<void*>(label_addr64)),
+                              old_val);
+                    if (old_val != 0) {
+                        u64* label_ptr = reinterpret_cast<u64*>(label_addr64);
+                        LOG_ERROR(Lib_GnmDriver,
+                                  "KNACK_VO_LABEL_FALLBACK_WRITE_ZERO label_addr={:p} old_val={} "
+                                  "new_val=0",
+                                  fmt::ptr(reinterpret_cast<void*>(label_addr64)), *label_ptr);
+                        *label_ptr = 0;
+                        if (vo_port && vo_port->IsVoLabel(label_ptr)) {
+                            vo_port->SignalVoLabel();
+                        }
+                        LOG_ERROR(Lib_GnmDriver,
+                                  "KNACK_VO_LABEL_FALLBACK_NOTIFY submit={} label_addr={:p}",
+                                  this_submit, fmt::ptr(reinterpret_cast<void*>(label_addr64)));
+                    } else {
+                        LOG_ERROR(Lib_GnmDriver,
+                                  "KNACK_VO_LABEL_FALLBACK_SKIP submit={} reason=already_zero",
+                                  this_submit);
+                    }
+                } else {
+                    LOG_ERROR(Lib_GnmDriver,
+                              "KNACK_VO_LABEL_FALLBACK_SKIP submit={} "
+                              "reason=no_writedata_at_Nop-5 opcode={} count={}",
+                              this_submit, wd_opcode, wd_count);
+                }
+            }
         } else {
             LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_NOT_FOUND submit={}", this_submit);
         }
