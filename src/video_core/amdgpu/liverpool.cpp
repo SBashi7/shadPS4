@@ -61,7 +61,8 @@ static void DumpTraceRing() {
     const u32 start = (trace_ring_pos > TRACE_RING_SIZE) ? (trace_ring_pos - TRACE_RING_SIZE) : 0;
     for (u32 i = 0; i < count; i++) {
         const auto& e = trace_ring[(start + i) % TRACE_RING_SIZE];
-        LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TRACE_LAST_PACKET[{}] idx={} offset={} rem={} header=0x{:08x} "
+        LOG_DEBUG(Lib_GnmDriver,
+                  "KNACK_PM4_TRACE_LAST_PACKET[{}] idx={} offset={} rem={} header=0x{:08x} "
                   "type={} opcode={} count={} pkt_dwords={}",
                   i, e.packet_index, e.offset_dwords, e.remaining_dwords, e.raw_header, e.type,
                   e.opcode, e.count_field, e.packet_total_dwords);
@@ -341,14 +342,16 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             // Validate: PatchedFlip Nop must be at the expected tail offset (size - 59)
             const size_t expected_nop_off = initial_dcb_size - 59;
             if (found_off != expected_nop_off && found_off != initial_dcb_size - 59) {
-                LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_WRONG_OFFSET submit={} found={} expected={} "
+                LOG_DEBUG(Lib_GnmDriver,
+                          "KNACK_PATCHEDFLIP_WRONG_OFFSET submit={} found={} expected={} "
                           "dcb_size={} — skipping label fallback",
                           this_submit, found_off, expected_nop_off, initial_dcb_size);
                 // Still signal GfxFlip (the marker IS present, just at wrong offset)
                 found = false; // prevent label fallback below
             }
 
-            LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
+            LOG_DEBUG(Lib_GnmDriver,
+                      "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
                       "payload=0x{:08x}",
                       this_submit, found_off, scan[found_off], scan[found_off + 1]);
             LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_FALLBACK_SIGNAL submit={}", this_submit);
@@ -366,26 +369,31 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     const u64 label_addr64 =
                         (static_cast<u64>(addr_hi) << 32) | static_cast<u64>(addr_lo);
                     const u32 data_val = scan[found_off - 1];
-                    LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_ENTER submit={} label_addr={:p} old_val={}",
+                    LOG_DEBUG(Lib_GnmDriver,
+                              "KNACK_VO_LABEL_FALLBACK_ENTER submit={} label_addr={:p} old_val={}",
                               this_submit, fmt::ptr(reinterpret_cast<void*>(label_addr64)),
                               data_val);
                     if (data_val != 0) {
                         u64* label_ptr = reinterpret_cast<u64*>(label_addr64);
-                        LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_WRITE_ZERO label_addr={:p} old_val={} "
+                        LOG_DEBUG(Lib_GnmDriver,
+                                  "KNACK_VO_LABEL_FALLBACK_WRITE_ZERO label_addr={:p} old_val={} "
                                   "new_val=0",
                                   fmt::ptr(reinterpret_cast<void*>(label_addr64)), *label_ptr);
                         *label_ptr = 0;
                         if (vo_port && vo_port->IsVoLabel(label_ptr)) {
                             vo_port->SignalVoLabel();
                         }
-                        LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_NOTIFY submit={} label_addr={:p}",
+                        LOG_DEBUG(Lib_GnmDriver,
+                                  "KNACK_VO_LABEL_FALLBACK_NOTIFY submit={} label_addr={:p}",
                                   this_submit, fmt::ptr(reinterpret_cast<void*>(label_addr64)));
                     } else {
-                        LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_SKIP submit={} reason=already_zero",
+                        LOG_DEBUG(Lib_GnmDriver,
+                                  "KNACK_VO_LABEL_FALLBACK_SKIP submit={} reason=already_zero",
                                   this_submit);
                     }
                 } else {
-                    LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_SKIP submit={} "
+                    LOG_DEBUG(Lib_GnmDriver,
+                              "KNACK_VO_LABEL_FALLBACK_SKIP submit={} "
                               "reason=no_writedata_at_Nop-5 opcode={} count={}",
                               this_submit, wd_opcode, wd_count);
                 }
@@ -407,7 +415,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             const size_t flip_write = dcb.size() - 64;
             const size_t flip_nop = flip_write + 5;
             const size_t flip_payload = flip_nop + 1;
-            LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_EXPECTED submit={} flip_write_offset={} nop_offset={} "
+            LOG_DEBUG(Lib_GnmDriver,
+                      "KNACK_PATCHEDFLIP_EXPECTED submit={} flip_write_offset={} nop_offset={} "
                       "payload_offset={} expected_nop=0xC0391000 expected_payload=0x68750776",
                       this_submit, flip_write, flip_nop, flip_payload);
         }
@@ -438,7 +447,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 t3_count = header->type3.NumWords();
                 t3_total = t3_count + 1;
             }
-            LOG_DEBUG(Lib_GnmDriver, "KNACK_PG_PACKET_BEGIN submit=3 pkt={} offset={} rem={} header=0x{:08x} "
+            LOG_DEBUG(Lib_GnmDriver,
+                      "KNACK_PG_PACKET_BEGIN submit=3 pkt={} offset={} rem={} header=0x{:08x} "
                       "type={} opcode={} count={} total_dw={}",
                       packet_index, off, dcb.size(), header->raw, type, t3_opcode, t3_count,
                       t3_total);
@@ -471,7 +481,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             const size_t expected_start = prev_expected_next;
             const size_t actual_start = entry.offset_dwords;
             if (packet_index > 0 && expected_start != actual_start) {
-                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_ADVANCE_MISMATCH submit={} prev_pkt={} prev_opcode={} "
+                LOG_DEBUG(Lib_GnmDriver,
+                          "KNACK_PM4_ADVANCE_MISMATCH submit={} prev_pkt={} prev_opcode={} "
                           "prev_count={} expected_next={} actual_start={} diff={}",
                           this_submit, prev_pkt_index, prev_opcode, prev_count_field,
                           expected_start, actual_start, (s64)actual_start - (s64)expected_start);
@@ -486,7 +497,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 const size_t abs_off = entry.offset_dwords;
                 const size_t end_off = abs_off + entry.packet_total_dwords;
                 const char* opcode_name = (type == 3) ? "type3" : (type == 0) ? "type0" : "other";
-                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_RANGE submit={} pkt={} start={} end={} rem={} "
+                LOG_DEBUG(Lib_GnmDriver,
+                          "KNACK_PM4_RANGE submit={} pkt={} start={} end={} rem={} "
                           "header=0x{:08x} type={} opcode={} count={} total_dw={}",
                           this_submit, entry.packet_index, abs_off, end_off, entry.remaining_dwords,
                           entry.raw_header, entry.type, entry.opcode, entry.count_field,
@@ -578,7 +590,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             // KNACK: guard against garbage tail parsed as Nop (false PatchedFlip)
             if (pkt_total > dcb.size()) {
                 const u32 opcode_raw = static_cast<u32>(header->type3.opcode.Value());
-                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD pkt_total={} remaining={} opcode={} "
+                LOG_DEBUG(Lib_GnmDriver,
+                          "KNACK_PM4_OVERFLOW_GUARD pkt_total={} remaining={} opcode={} "
                           "header=0x{:08x}",
                           pkt_total, dcb.size(), opcode_raw, header->raw);
                 if (opcode_raw == 0x10) {
@@ -592,7 +605,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     if (zero_count >= check_n / 2) {
                         LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD_SKIP_TAIL zeros={}/{}",
                                   zero_count, check_n - 2);
-                        LOG_DEBUG(Lib_GnmDriver,
+                        LOG_DEBUG(
+                            Lib_GnmDriver,
                             "KNACK_PROCESSGRAPHICS_EARLY_STOP submit={} reason=overflow_guard "
                             "offset={} rem={} header=0x{:08x}",
                             this_submit,
@@ -1179,7 +1193,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 const auto* wait_reg_mem = reinterpret_cast<const PM4CmdWaitRegMem*>(header);
                 const u64* wait_addr = wait_reg_mem->Address<u64*>();
                 if (this_submit == 3) {
-                    LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITREGMEM_ENTER submit=3 offset={} addr={:p} func={} "
+                    LOG_DEBUG(Lib_GnmDriver,
+                              "KNACK_WAITREGMEM_ENTER submit=3 offset={} addr={:p} func={} "
                               "ref={} mask={} poll_interval={} current_value={}",
                               reinterpret_cast<const u32*>(header) -
                                   reinterpret_cast<const u32*>(base_addr),
@@ -1204,7 +1219,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     if (this_submit == 3) {
                         static u32 yield_count_3 = 0;
                         if (++yield_count_3 % 1000 == 0) {
-                            LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITREGMEM_STILL_WAITING submit=3 yields={}",
+                            LOG_DEBUG(Lib_GnmDriver,
+                                      "KNACK_WAITREGMEM_STILL_WAITING submit=3 yields={}",
                                       yield_count_3);
                         }
                     }
@@ -1652,17 +1668,20 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
 
     if (Config::copyGPUCmdBuffers()) {
         if (n < 5) {
-            LOG_DEBUG(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}", n,
+            LOG_DEBUG(Lib_GnmDriver,
+                      "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}", n,
                       dcb.size(), ccb.size());
         }
         std::tie(dcb, ccb) = CopyCmdBuffers(dcb, ccb);
         if (n < 5) {
-            LOG_DEBUG(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}", n,
+            LOG_DEBUG(Lib_GnmDriver,
+                      "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}", n,
                       dcb.size(), ccb.size());
             // Log tail area where flip patch Nop should be (size-64 offset)
             if (dcb.size() >= 64) {
                 const size_t flip_offset = dcb.size() - 64;
-                LOG_DEBUG(Lib_GnmDriver, "KNACK_COPY_DCB_FLIP_TAIL #{} dcb[{}]=0x{:08x} dcb[{}]=0x{:08x} "
+                LOG_DEBUG(Lib_GnmDriver,
+                          "KNACK_COPY_DCB_FLIP_TAIL #{} dcb[{}]=0x{:08x} dcb[{}]=0x{:08x} "
                           "dcb[{}]=0x{:08x}",
                           n, flip_offset, dcb[flip_offset], flip_offset + 5, dcb[flip_offset + 5],
                           flip_offset + 6, dcb[flip_offset + 6]);

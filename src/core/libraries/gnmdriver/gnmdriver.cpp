@@ -2199,7 +2199,8 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
     auto* cmdbuf = dcb_gpu_addrs[count - 1];
     const auto size_dw = dcb_sizes_in_bytes[count - 1] / 4;
 
-    LOG_DEBUG(Lib_GnmDriver, "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
+    LOG_DEBUG(Lib_GnmDriver,
+              "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
               count - 1, count, size_dw, fmt::ptr(cmdbuf));
 
     const s32 patch_result =
