@@ -270,7 +270,7 @@ void VideoOutDriver::Flip(const Request& req) {
     // Trigger flip events for the port.
     for (auto& event : port->flip_events) {
         if (event != nullptr) {
-            LOG_DEBUG(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_EVENT_TRIGGERED");
+            LOG_ERROR(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_EVENT_TRIGGERED");
             event->TriggerEvent(
                 static_cast<u64>(OrbisVideoOutInternalEventId::Flip),
                 Kernel::OrbisKernelEvent::Filter::VideoOut,
@@ -286,7 +286,7 @@ void VideoOutDriver::Flip(const Request& req) {
         const u64 old_val = port->buffer_labels[port->prev_index];
         port->buffer_labels[port->prev_index] = 0;
         const u64 new_val = port->buffer_labels[port->prev_index];
-        LOG_ERROR(
+        LOG_DEBUG(
             Lib_VideoOut, "KNACK_VO_LABEL_RESET buf_index={} label_addr={:p} old_val={} new_val={}",
             port->prev_index, fmt::ptr(reinterpret_cast<void*>(label_addr)), old_val, new_val);
         port->SignalVoLabel();

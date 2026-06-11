@@ -350,7 +350,7 @@ s32 sceVideoOutSubmitEopFlip(s32 handle, u32 buf_id, u32 mode, s64 flip_arg, voi
         return ORBIS_VIDEO_OUT_ERROR_INVALID_HANDLE;
     }
 
-    LOG_ERROR(
+    LOG_DEBUG(
         Lib_VideoOut, "KNACK_VO_SUBMIT_FLIP handle={} buf_id={} flip_arg={} label_addr={:p}",
         handle, buf_id, flip_arg,
         fmt::ptr(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(port->buffer_labels.data()) +
