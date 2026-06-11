@@ -509,7 +509,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             // KNACK: stop buffer after too many unknown types to prevent exit freeze
             // Use a per-call static that resets on ProcessGraphics exit
             static u32 unknown_skip_buf = 0;
-            if (packet_index == 0) unknown_skip_buf = 0;
+            if (packet_index == 0)
+                unknown_skip_buf = 0;
             unknown_skip_buf++;
             if (unknown_skip_buf > 5000) {
                 LOG_ERROR(Lib_GnmDriver, "KNACK_UNKNOWN_TYPE_STOP buf_skips={}", unknown_skip_buf);
