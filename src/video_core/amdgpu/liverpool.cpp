@@ -334,6 +334,17 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             }
         }
         if (found) {
+            // Validate: PatchedFlip Nop must be at the expected tail offset (size - 59)
+            const size_t expected_nop_off = initial_dcb_size - 59;
+            if (found_off != expected_nop_off && found_off != initial_dcb_size - 59) {
+                LOG_ERROR(Lib_GnmDriver,
+                          "KNACK_PATCHEDFLIP_WRONG_OFFSET submit={} found={} expected={} "
+                          "dcb_size={} — skipping label fallback",
+                          this_submit, found_off, expected_nop_off, initial_dcb_size);
+                // Still signal GfxFlip (the marker IS present, just at wrong offset)
+                found = false; // prevent label fallback below
+            }
+
             LOG_ERROR(Lib_GnmDriver,
                       "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
                       "payload=0x{:08x}",
@@ -343,7 +354,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
             // Also directly reset the VO label to break circular deadlock
             // The flip WriteData is 5 dwords before the Nop (count=3, total 5 dwords)
-            if (found_off >= 5) {
+            if (found && found_off >= 5) {
                 const u32 wd_header = scan[found_off - 5];
                 const u32 wd_count = (wd_header >> 16) & 0x3FFF;
                 const u32 wd_opcode = (wd_header >> 8) & 0xFF;
