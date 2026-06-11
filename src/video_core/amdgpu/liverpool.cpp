@@ -506,6 +506,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
         switch (type) {
         default:
+            dcb = NextPacket(dcb, 1); // KNACK: skip unknown packet type, don't infinite loop
             continue;
         case 0: {
             const u32 count = knack_pm4_type0_count.fetch_add(1);
