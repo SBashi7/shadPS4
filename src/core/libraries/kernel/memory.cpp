@@ -69,10 +69,25 @@ s32 PS4_SYSV_ABI sceKernelAllocateDirectMemory(s64 searchStart, s64 searchEnd, u
     auto* memory = Core::Memory::Instance();
     PAddr phys_addr = memory->Allocate(searchStart, searchEnd, len, alignment, memoryType);
     if (phys_addr == -1) {
+        // KNACK: trace failed allocations (potential 4K map cause)
+        if (len >= 1_MB) {
+            LOG_DEBUG(Kernel_Vmm,
+                      "KNACK_MEM_ALLOC_FAIL len={}MB type={} searchStart=0x{:x} searchEnd=0x{:x} "
+                      "alignment=0x{:x}",
+                      len / 1_MB, memoryType, searchStart, searchEnd, alignment);
+        }
         return ORBIS_KERNEL_ERROR_EAGAIN;
     }
 
     *physAddrOut = static_cast<s64>(phys_addr);
+
+    // KNACK: trace large successful allocations
+    if (len >= 16_MB) {
+        LOG_DEBUG(Kernel_Vmm,
+                  "KNACK_MEM_ALLOC_OK len={}MB type={} searchStart=0x{:x} searchEnd=0x{:x} "
+                  "physAddr=0x{:x}",
+                  len / 1_MB, memoryType, searchStart, searchEnd, phys_addr);
+    }
 
     LOG_INFO(Kernel_Vmm,
              "searchStart = {:#x}, searchEnd = {:#x}, len = {:#x}, "
