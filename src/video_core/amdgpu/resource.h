@@ -490,7 +490,9 @@ struct Sampler {
         case AnisoRatio::Sixteen:
             return 16.0f;
         default:
-            UNREACHABLE();
+            LOG_ERROR(Lib_GnmDriver, "Unsupported max_aniso value {}, using 1.0",
+                      max_aniso.Value());
+            return 1.0f;
         }
     }
 };
