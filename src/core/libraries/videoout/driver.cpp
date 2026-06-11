@@ -264,13 +264,13 @@ void VideoOutDriver::Flip(const Request& req) {
         --flip_status.flip_pending_num;
     }
 
-    LOG_ERROR(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_DONE buf={} flip_arg={} flip_count={} eop={}",
+    LOG_DEBUG(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_DONE buf={} flip_arg={} flip_count={} eop={}",
               req.index, req.flip_arg, port->flip_status.count, req.eop);
 
     // Trigger flip events for the port.
     for (auto& event : port->flip_events) {
         if (event != nullptr) {
-            LOG_ERROR(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_EVENT_TRIGGERED");
+            LOG_DEBUG(Lib_VideoOut, "KNACK_VIDEOOUT_FLIP_EVENT_TRIGGERED");
             event->TriggerEvent(
                 static_cast<u64>(OrbisVideoOutInternalEventId::Flip),
                 Kernel::OrbisKernelEvent::Filter::VideoOut,

@@ -85,12 +85,12 @@ static void ResetSubmissionLock(Platform::InterruptId irq) {
 
 static void WaitGpuIdle() {
     HLE_TRACE;
-    LOG_ERROR(Lib_GnmDriver, "KNACK_WAITGPU_ENTER lock_value={}", submission_lock);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITGPU_ENTER lock_value={}", submission_lock);
     std::unique_lock lock{m_submission};
     auto start = std::chrono::steady_clock::now();
     cv_lock.wait(lock, [] { return submission_lock == 0; });
     auto elapsed = std::chrono::steady_clock::now() - start;
-    LOG_ERROR(Lib_GnmDriver, "KNACK_WAITGPU_EXIT lock_value={} waited_ms={}", submission_lock,
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITGPU_EXIT lock_value={} waited_ms={}", submission_lock,
               std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
@@ -297,7 +297,7 @@ int PS4_SYSV_ABI sceGnmDestroyWorkloadStream() {
 void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
     HLE_TRACE;
     LOG_DEBUG(Lib_GnmDriver, "vqid {}, offset_dw {}", gnm_vqid, next_offs_dw);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_DINGDONG_CALLED vqid={} next_offs_dw={}", gnm_vqid,
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_DINGDONG_CALLED vqid={} next_offs_dw={}", gnm_vqid,
               next_offs_dw);
 
     if (gnm_vqid == 0) {
@@ -2089,11 +2089,11 @@ static inline s32 PatchFlipRequest(u32* cmdbuf, u32 size, u32 vo_handle, u32 buf
     cmdbuf += size - 64;
     ASSERT_MSG(cmdbuf[0] == 0xc03e1000, "Can't find `prepareFlip` packet");
 
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_ENTER cmdbuf_orig={:p} size={} offset_from_orig={}",
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_ENTER cmdbuf_orig={:p} size={} offset_from_orig={}",
               fmt::ptr(orig_cmdbuf), size, cmdbuf - orig_cmdbuf);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_0 = 0x{:08x}", cmdbuf[0]);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_5 = 0x{:08x}", cmdbuf[5]);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_6 = 0x{:08x}", cmdbuf[6]);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_0 = 0x{:08x}", cmdbuf[0]);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_5 = 0x{:08x}", cmdbuf[5]);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_BEFORE_DWORD_6 = 0x{:08x}", cmdbuf[6]);
 
     std::array<u32, 7> backup{};
     std::memcpy(backup.data(), cmdbuf, backup.size() * sizeof(decltype(backup)::value_type));
@@ -2170,10 +2170,10 @@ static inline s32 PatchFlipRequest(u32* cmdbuf, u32 size, u32 vo_handle, u32 buf
         }
     }
 
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_0 = 0x{:08x}", cmdbuf[0]);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_5 = 0x{:08x}", cmdbuf[5]);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_6 = 0x{:08x}", cmdbuf[6]);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHFLIP_EXPECTED_NOP = 0xC0391000");
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_0 = 0x{:08x}", cmdbuf[0]);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_5 = 0x{:08x}", cmdbuf[5]);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_AFTER_DWORD_6 = 0x{:08x}", cmdbuf[6]);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHFLIP_EXPECTED_NOP = 0xC0391000");
 
     return ORBIS_OK;
 }
@@ -2192,15 +2192,14 @@ s32 PS4_SYSV_ABI sceGnmSubmitAndFlipCommandBuffersForWorkload(
     u32* ccb_sizes_in_bytes, u32 vo_handle, u32 buf_idx, u32 flip_mode, s64 flip_arg) {
     static std::atomic<u32> knack_flip_id{0};
     const u32 fid = knack_flip_id.fetch_add(1);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_FLIP_SUBMIT_CALLED flip_id={} buf={} vo_handle={}", fid,
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_FLIP_SUBMIT_CALLED flip_id={} buf={} vo_handle={}", fid,
               buf_idx, vo_handle);
     LOG_DEBUG(Lib_GnmDriver, "called [buf = {}]", buf_idx);
 
     auto* cmdbuf = dcb_gpu_addrs[count - 1];
     const auto size_dw = dcb_sizes_in_bytes[count - 1] / 4;
 
-    LOG_ERROR(Lib_GnmDriver,
-              "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_FLIP_PATCHING_DCB flip_id={} dcb_index={}/{} size_dw={} cmdbuf={:p}", fid,
               count - 1, count, size_dw, fmt::ptr(cmdbuf));
 
     const s32 patch_result =

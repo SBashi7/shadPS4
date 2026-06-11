@@ -339,7 +339,7 @@ s32 PS4_SYSV_ABI sceVideoOutGetBufferLabelAddress(s32 handle, uintptr_t* label_a
         return ORBIS_VIDEO_OUT_ERROR_INVALID_HANDLE;
     }
     *label_addr = reinterpret_cast<uintptr_t>(port->buffer_labels.data());
-    LOG_ERROR(Lib_VideoOut, "KNACK_VO_LABEL_GET handle={} label_addr={:p}", handle,
+    LOG_DEBUG(Lib_VideoOut, "KNACK_VO_LABEL_GET handle={} label_addr={:p}", handle,
               fmt::ptr(reinterpret_cast<void*>(*label_addr)));
     return 16;
 }

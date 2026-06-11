@@ -61,8 +61,7 @@ static void DumpTraceRing() {
     const u32 start = (trace_ring_pos > TRACE_RING_SIZE) ? (trace_ring_pos - TRACE_RING_SIZE) : 0;
     for (u32 i = 0; i < count; i++) {
         const auto& e = trace_ring[(start + i) % TRACE_RING_SIZE];
-        LOG_ERROR(Lib_GnmDriver,
-                  "KNACK_PM4_TRACE_LAST_PACKET[{}] idx={} offset={} rem={} header=0x{:08x} "
+        LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TRACE_LAST_PACKET[{}] idx={} offset={} rem={} header=0x{:08x} "
                   "type={} opcode={} count={} pkt_dwords={}",
                   i, e.packet_index, e.offset_dwords, e.remaining_dwords, e.raw_header, e.type,
                   e.opcode, e.count_field, e.packet_total_dwords);
@@ -108,13 +107,13 @@ static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset)
             const u32* data = span.data();
             const size_t remaining = span.size();
 
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW #{}", count);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REQUESTED_DWORDS = {}", offset);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_REMAINING_DWORDS = {}", remaining);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_OFFSET = {} dwords from span start",
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW #{}", count);
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_REQUESTED_DWORDS = {}", offset);
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_REMAINING_DWORDS = {}", remaining);
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_OFFSET = {} dwords from span start",
                       0);
             if (remaining > 0) {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", data[0]);
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_CURRENT_HEADER = 0x{:08x}", data[0]);
             }
             // Dump last trace packets
             DumpTraceRing();
@@ -122,13 +121,13 @@ static std::span<const u32> NextPacket(std::span<const u32> span, size_t offset)
             {
                 const size_t dump_n = std::min<size_t>(remaining, 128);
                 for (size_t i = 0; i < dump_n; ++i) {
-                    LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_DCB_TAIL[{}] = 0x{:08x}", i,
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_DCB_TAIL[{}] = 0x{:08x}", i,
                               data[i]);
                 }
             }
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_STOPPING_CURRENT_BUFFER");
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_STOPPING_CURRENT_BUFFER");
         } else if (summary) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW summary: {} total occurrences",
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_NEXTPACKET_OVERFLOW summary: {} total occurrences",
                       count);
         }
         // Return empty subspan so check for next packet bails out
@@ -317,9 +316,9 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     const bool trace_enabled = this_submit < 5;
     constexpr u32 TRACE_MAX_PACKETS = 1000;
 
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_ENTER submit={} dcb_size={}", this_submit,
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_ENTER submit={} dcb_size={}", this_submit,
               initial_dcb_size);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_GPU_TASK_ACTIVE submit={}", this_submit);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_GPU_TASK_ACTIVE submit={}", this_submit);
 
     // KNACK: fallback PatchedFlip scan at ProcessGraphics entry
     if (initial_dcb_size >= 64) {
@@ -337,19 +336,17 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             // Validate: PatchedFlip Nop must be at the expected tail offset (size - 59)
             const size_t expected_nop_off = initial_dcb_size - 59;
             if (found_off != expected_nop_off && found_off != initial_dcb_size - 59) {
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_PATCHEDFLIP_WRONG_OFFSET submit={} found={} expected={} "
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_WRONG_OFFSET submit={} found={} expected={} "
                           "dcb_size={} — skipping label fallback",
                           this_submit, found_off, expected_nop_off, initial_dcb_size);
                 // Still signal GfxFlip (the marker IS present, just at wrong offset)
                 found = false; // prevent label fallback below
             }
 
-            LOG_ERROR(Lib_GnmDriver,
-                      "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_FOUND submit={} offset={} header=0x{:08x} "
                       "payload=0x{:08x}",
                       this_submit, found_off, scan[found_off], scan[found_off + 1]);
-            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_FALLBACK_SIGNAL submit={}", this_submit);
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_FALLBACK_SIGNAL submit={}", this_submit);
             Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
 
             // Also directly reset the VO label to break circular deadlock
@@ -364,37 +361,32 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     const u64 label_addr64 =
                         (static_cast<u64>(addr_hi) << 32) | static_cast<u64>(addr_lo);
                     const u32 data_val = scan[found_off - 1];
-                    LOG_ERROR(Lib_GnmDriver,
-                              "KNACK_VO_LABEL_FALLBACK_ENTER submit={} label_addr={:p} old_val={}",
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_ENTER submit={} label_addr={:p} old_val={}",
                               this_submit, fmt::ptr(reinterpret_cast<void*>(label_addr64)),
                               data_val);
                     if (data_val != 0) {
                         u64* label_ptr = reinterpret_cast<u64*>(label_addr64);
-                        LOG_ERROR(Lib_GnmDriver,
-                                  "KNACK_VO_LABEL_FALLBACK_WRITE_ZERO label_addr={:p} old_val={} "
+                        LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_WRITE_ZERO label_addr={:p} old_val={} "
                                   "new_val=0",
                                   fmt::ptr(reinterpret_cast<void*>(label_addr64)), *label_ptr);
                         *label_ptr = 0;
                         if (vo_port && vo_port->IsVoLabel(label_ptr)) {
                             vo_port->SignalVoLabel();
                         }
-                        LOG_ERROR(Lib_GnmDriver,
-                                  "KNACK_VO_LABEL_FALLBACK_NOTIFY submit={} label_addr={:p}",
+                        LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_NOTIFY submit={} label_addr={:p}",
                                   this_submit, fmt::ptr(reinterpret_cast<void*>(label_addr64)));
                     } else {
-                        LOG_ERROR(Lib_GnmDriver,
-                                  "KNACK_VO_LABEL_FALLBACK_SKIP submit={} reason=already_zero",
+                        LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_SKIP submit={} reason=already_zero",
                                   this_submit);
                     }
                 } else {
-                    LOG_ERROR(Lib_GnmDriver,
-                              "KNACK_VO_LABEL_FALLBACK_SKIP submit={} "
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_VO_LABEL_FALLBACK_SKIP submit={} "
                               "reason=no_writedata_at_Nop-5 opcode={} count={}",
                               this_submit, wd_opcode, wd_count);
                 }
             }
         } else {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_NOT_FOUND submit={}", this_submit);
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SCAN_NOT_FOUND submit={}", this_submit);
         }
     }
 
@@ -402,7 +394,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     if (trace_enabled) {
         const size_t head_n = std::min<size_t>(dcb.size(), 128);
         for (size_t i = 0; i < head_n; ++i) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_DCB_HEAD submit={} [{}] = 0x{:08x}", this_submit, i,
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_DCB_HEAD submit={} [{}] = 0x{:08x}", this_submit, i,
                       dcb[i]);
         }
         // Log expected flip patch positions for this DCB
@@ -410,8 +402,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             const size_t flip_write = dcb.size() - 64;
             const size_t flip_nop = flip_write + 5;
             const size_t flip_payload = flip_nop + 1;
-            LOG_ERROR(Lib_GnmDriver,
-                      "KNACK_PATCHEDFLIP_EXPECTED submit={} flip_write_offset={} nop_offset={} "
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_EXPECTED submit={} flip_write_offset={} nop_offset={} "
                       "payload_offset={} expected_nop=0xC0391000 expected_payload=0x68750776",
                       this_submit, flip_write, flip_nop, flip_payload);
         }
@@ -419,12 +410,12 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
     while (!dcb.empty()) {
         if (this_submit == 3) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_PG_BEFORE_PROCESSCOMMANDS submit=3");
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_PG_BEFORE_PROCESSCOMMANDS submit=3");
         }
         ProcessCommands();
 
         if (this_submit == 3) {
-            LOG_ERROR(Lib_GnmDriver, "KNACK_PG_AFTER_PROCESSCOMMANDS submit=3");
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_PG_AFTER_PROCESSCOMMANDS submit=3");
         }
 
         const auto* header = reinterpret_cast<const PM4Header*>(dcb.data());
@@ -442,8 +433,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 t3_count = header->type3.NumWords();
                 t3_total = t3_count + 1;
             }
-            LOG_ERROR(Lib_GnmDriver,
-                      "KNACK_PG_PACKET_BEGIN submit=3 pkt={} offset={} rem={} header=0x{:08x} "
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_PG_PACKET_BEGIN submit=3 pkt={} offset={} rem={} header=0x{:08x} "
                       "type={} opcode={} count={} total_dw={}",
                       packet_index, off, dcb.size(), header->raw, type, t3_opcode, t3_count,
                       t3_total);
@@ -476,8 +466,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             const size_t expected_start = prev_expected_next;
             const size_t actual_start = entry.offset_dwords;
             if (packet_index > 0 && expected_start != actual_start) {
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_PM4_ADVANCE_MISMATCH submit={} prev_pkt={} prev_opcode={} "
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_ADVANCE_MISMATCH submit={} prev_pkt={} prev_opcode={} "
                           "prev_count={} expected_next={} actual_start={} diff={}",
                           this_submit, prev_pkt_index, prev_opcode, prev_count_field,
                           expected_start, actual_start, (s64)actual_start - (s64)expected_start);
@@ -492,8 +481,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 const size_t abs_off = entry.offset_dwords;
                 const size_t end_off = abs_off + entry.packet_total_dwords;
                 const char* opcode_name = (type == 3) ? "type3" : (type == 0) ? "type0" : "other";
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_PM4_RANGE submit={} pkt={} start={} end={} rem={} "
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_RANGE submit={} pkt={} start={} end={} rem={} "
                           "header=0x{:08x} type={} opcode={} count={} total_dw={}",
                           this_submit, entry.packet_index, abs_off, end_off, entry.remaining_dwords,
                           entry.raw_header, entry.type, entry.opcode, entry.count_field,
@@ -515,7 +503,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             const bool summary = (count % KNACK_DIAG_SUMMARY_INTERVAL) == 0;
 
             if (full_dump || summary) {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT #{} {}", count,
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT #{} {}", count,
                           full_dump ? "(full dump)" : "(summary)");
             }
 
@@ -526,14 +514,14 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 const size_t current_offset = reinterpret_cast<const u32*>(header) - dcb.data();
                 const size_t remaining = dcb.size();
 
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_RAW_HEADER = 0x{:08x}", raw);
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_COUNT bits = {}",
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_RAW_HEADER = 0x{:08x}", raw);
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_COUNT bits = {}",
                           header->type0.count.Value());
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_NUM_WORDS = {}", num_words);
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_SKIP_DWORDS = {}", skip);
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_OFFSET_DWORDS = {}", current_offset);
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_REMAINING_DWORDS = {}", remaining);
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_THREAD_ID = {}",
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_NUM_WORDS = {}", num_words);
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_SKIP_DWORDS = {}", skip);
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_OFFSET_DWORDS = {}", current_offset);
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_REMAINING_DWORDS = {}", remaining);
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_THREAD_ID = {}",
                           std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
                 // Dump previous 8 dwords (if available)
@@ -543,7 +531,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     const size_t n = current_offset - start;
                     const size_t max_show = 8;
                     for (size_t i = 0; i < n && i < max_show; ++i) {
-                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_PREV_DWORDS[{}] = 0x{:08x}", i,
+                        LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_PREV_DWORDS[{}] = 0x{:08x}", i,
                                   base[start + i]);
                     }
                 }
@@ -553,17 +541,17 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     const u32* base = dcb.data();
                     const size_t max_dump = std::min<size_t>(remaining, 17); // header + 16 next
                     for (size_t i = 0; i < max_dump; ++i) {
-                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_NEXT_DWORDS[{}] = 0x{:08x}", i,
+                        LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_NEXT_DWORDS[{}] = 0x{:08x}", i,
                                   base[current_offset + i]);
                     }
                 }
 
                 // Check if header appears to be zero/uninitialized
                 if (raw == 0) {
-                    LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_ZERO_HEADER_DETECTED");
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_ZERO_HEADER_DETECTED");
                 }
             } else if (summary) {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT summary: {} total occurrences",
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_TYPE0_HIT summary: {} total occurrences",
                           count);
             }
 
@@ -580,8 +568,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             // KNACK: guard against garbage tail parsed as Nop (false PatchedFlip)
             if (pkt_total > dcb.size()) {
                 const u32 opcode_raw = static_cast<u32>(header->type3.opcode.Value());
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_PM4_OVERFLOW_GUARD pkt_total={} remaining={} opcode={} "
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD pkt_total={} remaining={} opcode={} "
                           "header=0x{:08x}",
                           pkt_total, dcb.size(), opcode_raw, header->raw);
                 if (opcode_raw == 0x10) {
@@ -593,7 +580,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                             zero_count++;
                     }
                     if (zero_count >= check_n / 2) {
-                        LOG_ERROR(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD_SKIP_TAIL zeros={}/{}",
+                        LOG_DEBUG(Lib_GnmDriver, "KNACK_PM4_OVERFLOW_GUARD_SKIP_TAIL zeros={}/{}",
                                   zero_count, check_n - 2);
                         LOG_ERROR(
                             Lib_GnmDriver,
@@ -613,7 +600,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             case PM4ItOpcode::Nop: {
                 const auto* nop = reinterpret_cast<const PM4CmdNop*>(header);
                 const u32 nop_count = nop->header.count.Value();
-                LOG_ERROR(Lib_GnmDriver, "KNACK_NOP_SEEN count={} payload0=0x{:08x}", nop_count,
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_NOP_SEEN count={} payload0=0x{:08x}", nop_count,
                           nop_count > 0 ? nop->data_block[0] : 0);
                 if (nop_count == 0) {
                     break;
@@ -623,7 +610,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 case PM4CmdNop::PayloadType::PatchedFlip: {
                     // There is no evidence that GPU CP drives flip events by parsing
                     // special NOP packets. For convenience lets assume that it does.
-                    LOG_ERROR(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SIGNAL");
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_PATCHEDFLIP_SIGNAL");
                     knack_flip_signaled.store(true);
                     Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
                     break;
@@ -1028,7 +1015,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::EventWrite: {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_EVENTWRITE_CALLED");
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_EVENTWRITE_CALLED");
                 const auto* event = reinterpret_cast<const PM4CmdEventWrite*>(header);
                 LOG_DEBUG(Render, "Encountered EventWrite: event_type = {}, event_index = {}",
                           magic_enum::enum_name(event->event_type.Value()),
@@ -1051,7 +1038,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::EventWriteEos: {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_EVENTWRITEEOS_CALLED");
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_EVENTWRITEEOS_CALLED");
                 const auto* event_eos = reinterpret_cast<const PM4CmdEventWriteEos*>(header);
                 if (rasterizer) {
                     rasterizer->CommitPendingGpuRanges();
@@ -1073,7 +1060,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::EventWriteEop: {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_EVENTWRITEEOP_CALLED");
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_EVENTWRITEEOP_CALLED");
                 const auto* event_eop = reinterpret_cast<const PM4CmdEventWriteEop*>(header);
                 if (rasterizer) {
                     rasterizer->CommitPendingGpuRanges();
@@ -1125,7 +1112,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::WriteData: {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_WRITEDATA_CALLED");
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_WRITEDATA_CALLED");
                 const auto* write_data = reinterpret_cast<const PM4CmdWriteData*>(header);
                 ASSERT(write_data->dst_sel.Value() == 2 || write_data->dst_sel.Value() == 5);
                 const u32 data_size = (header->type3.count.Value() - 2) * 4;
@@ -1163,7 +1150,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::AcquireMem: {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_ACQUIREMEM_CALLED");
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_ACQUIREMEM_CALLED");
                 // const auto* acquire_mem = reinterpret_cast<PM4CmdAcquireMem*>(header);
                 break;
             }
@@ -1179,12 +1166,11 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             case PM4ItOpcode::WaitRegMem: {
-                LOG_ERROR(Lib_GnmDriver, "KNACK_WAITREGMEM_CALLED");
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITREGMEM_CALLED");
                 const auto* wait_reg_mem = reinterpret_cast<const PM4CmdWaitRegMem*>(header);
                 const u64* wait_addr = wait_reg_mem->Address<u64*>();
                 if (this_submit == 3) {
-                    LOG_ERROR(Lib_GnmDriver,
-                              "KNACK_WAITREGMEM_ENTER submit=3 offset={} addr={:p} func={} "
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITREGMEM_ENTER submit=3 offset={} addr={:p} func={} "
                               "ref={} mask={} poll_interval={} current_value={}",
                               reinterpret_cast<const u32*>(header) -
                                   reinterpret_cast<const u32*>(base_addr),
@@ -1199,7 +1185,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 if (vo_port->IsVoLabel(wait_addr) &&
                     num_submits == mapped_queues[GfxQueueId].submits.size()) {
                     if (this_submit == 3) {
-                        LOG_ERROR(Lib_GnmDriver, "KNACK_WAITREGMEM_VO_LABEL_WAIT submit=3");
+                        LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITREGMEM_VO_LABEL_WAIT submit=3");
                     }
                     vo_port->WaitVoLabel([&] { return wait_reg_mem->Test(regs.reg_array); });
                     break;
@@ -1209,14 +1195,13 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                     if (this_submit == 3) {
                         static u32 yield_count_3 = 0;
                         if (++yield_count_3 % 1000 == 0) {
-                            LOG_ERROR(Lib_GnmDriver,
-                                      "KNACK_WAITREGMEM_STILL_WAITING submit=3 yields={}",
+                            LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITREGMEM_STILL_WAITING submit=3 yields={}",
                                       yield_count_3);
                         }
                     }
                 }
                 if (this_submit == 3) {
-                    LOG_ERROR(Lib_GnmDriver, "KNACK_WAITREGMEM_EXIT submit=3");
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_WAITREGMEM_EXIT submit=3");
                 }
                 break;
             }
@@ -1294,8 +1279,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         ce_task.handle.destroy();
     }
 
-    LOG_ERROR(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_EXIT submit={}", this_submit);
-    LOG_ERROR(Lib_GnmDriver, "KNACK_GPU_TASK_FINISHED submit={}", this_submit);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_EXIT submit={}", this_submit);
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_GPU_TASK_FINISHED submit={}", this_submit);
 
     FIBER_EXIT;
 }
@@ -1650,28 +1635,25 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
     const bool copy_enabled = Config::copyGPUCmdBuffers();
 
     if (n < 5) {
-        LOG_ERROR(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}",
+        LOG_DEBUG(Lib_GnmDriver, "KNACK_COPY_GPU_BUFFERS_RUNTIME_{}",
                   copy_enabled ? "TRUE" : "FALSE");
-        LOG_ERROR(Lib_GnmDriver, "KNACK_SUBMITGFX_ENTER submit_id={} dcb_size={} ccb_size={}", n,
+        LOG_DEBUG(Lib_GnmDriver, "KNACK_SUBMITGFX_ENTER submit_id={} dcb_size={} ccb_size={}", n,
                   dcb.size(), ccb.size());
     }
 
     if (Config::copyGPUCmdBuffers()) {
         if (n < 5) {
-            LOG_ERROR(Lib_GnmDriver,
-                      "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}", n,
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_CALLED #{} dcb_dwords={} ccb_dwords={}", n,
                       dcb.size(), ccb.size());
         }
         std::tie(dcb, ccb) = CopyCmdBuffers(dcb, ccb);
         if (n < 5) {
-            LOG_ERROR(Lib_GnmDriver,
-                      "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}", n,
+            LOG_DEBUG(Lib_GnmDriver, "KNACK_COPY_CMD_BUFFERS_DONE #{} copied_dcb_size={} copied_ccb_size={}", n,
                       dcb.size(), ccb.size());
             // Log tail area where flip patch Nop should be (size-64 offset)
             if (dcb.size() >= 64) {
                 const size_t flip_offset = dcb.size() - 64;
-                LOG_ERROR(Lib_GnmDriver,
-                          "KNACK_COPY_DCB_FLIP_TAIL #{} dcb[{}]=0x{:08x} dcb[{}]=0x{:08x} "
+                LOG_DEBUG(Lib_GnmDriver, "KNACK_COPY_DCB_FLIP_TAIL #{} dcb[{}]=0x{:08x} dcb[{}]=0x{:08x} "
                           "dcb[{}]=0x{:08x}",
                           n, flip_offset, dcb[flip_offset], flip_offset + 5, dcb[flip_offset + 5],
                           flip_offset + 6, dcb[flip_offset + 6]);
