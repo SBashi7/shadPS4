@@ -3,10 +3,12 @@
 
 #include "video_core/knack_render_diag.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <xxhash.h>
 #include "common/logging/log.h"
 #include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/amdgpu/regs.h"
@@ -35,6 +37,8 @@ Flags Flags::LoadFromEnv() {
         f.fs_summary = EnvBool(ENV_FS_SUMMARY, true);
         f.pm4_trace_effects = EnvBool(ENV_PM4_TRACE_EFFECTS, true);
         f.renderdoc_labels = EnvBool(ENV_RENDERDOC_LABELS, true);
+        f.pipeline_blend_key_diag = EnvBool(ENV_PIPELINE_BLEND_KEY_DIAG, false);
+        f.disable_effect_pipeline_reuse = EnvBool(ENV_DISABLE_EFFECT_PIPELINE_REUSE, false);
     }
     return f;
 }
@@ -57,7 +61,10 @@ void Initialize() {
             LOG_INFO(Common, "  texture_dump      = {}", g_flags.texture_dump);
             LOG_INFO(Common, "  fs_summary        = {}", g_flags.fs_summary);
             LOG_INFO(Common, "  pm4_trace_effects = {}", g_flags.pm4_trace_effects);
-            LOG_INFO(Common, "  renderdoc_labels  = {}", g_flags.renderdoc_labels);
+            LOG_INFO(Common, "  renderdoc_labels          = {}", g_flags.renderdoc_labels);
+            LOG_INFO(Common, "  pipeline_blend_key_diag   = {}", g_flags.pipeline_blend_key_diag);
+            LOG_INFO(Common, "  disable_effect_pipeline_reuse = {}",
+                     g_flags.disable_effect_pipeline_reuse);
             LOG_INFO(Common, "=========================================");
             std::filesystem::create_directories("dumps/knack_effects");
             if (g_flags.fs_summary) {
@@ -334,10 +341,94 @@ void KnackFsWriteSummary() {
     if (g_flags.fs_summary) {
         FsSummary::Instance().WriteSummary("dumps/KNACK_FS_MISSING_SUMMARY.txt");
     }
+    // Also write effect signature summary
+    if (g_flags.effect_diag) {
+        EffectSignatureTracker::Instance().WriteSummary(
+            "dumps/KNACK_EFFECT_SIGNATURE_SUMMARY.txt");
+    }
 }
 
 void RegisterFsSummaryOnExit() {
     std::atexit([] { KnackFsWriteSummary(); });
+}
+
+// ─── Effect signature grouping ─────────────────────────────────────
+
+EffectSignatureTracker& EffectSignatureTracker::Instance() {
+    static EffectSignatureTracker instance;
+    return instance;
+}
+
+void EffectSignatureTracker::RecordDraw(const EffectDrawInfo& info, u32 num_bound_images,
+                                          u32 fmt_0, u32 tile_0, u32 fmt_1, u32 tile_1,
+                                          bool pipe_blend_en, bool pipe_blend_en2,
+                                          u32 pipe_write_mask, u32 reg_write_mask) {
+    std::lock_guard lock(mtx);
+    total_draws++;
+
+    const auto hash = XXH3_64bits(&info.vs_hash, sizeof(info.vs_hash) * 2);
+    EffectSignature sig{};
+    sig.vs_hash = info.vs_hash;
+    sig.fs_hash = info.fs_hash;
+    sig.gs_hash = info.gs_hash;
+    sig.effect_type = info.effect_type;
+    sig.fmt_0 = fmt_0;
+    sig.tile_0 = tile_0;
+    sig.has_gs = info.has_geometry_shader;
+    sig.pipe_blend_en = pipe_blend_en;
+    sig.blend_mismatch = (pipe_blend_en != pipe_blend_en2);
+
+    // Find or create entry
+    for (auto& entry : entries) {
+        if (entry.sig == sig) {
+            entry.draw_count++;
+            entry.last_submit = info.submit_id;
+            entry.last_draw = info.draw_id;
+            return;
+        }
+    }
+    sig.draw_count = 1;
+    sig.first_submit = info.submit_id;
+    sig.first_draw = info.draw_id;
+    entries.emplace_back(sig);
+}
+
+void EffectSignatureTracker::WriteSummary(const std::string& path) {
+    std::lock_guard lock(mtx);
+    if (entries.empty()) {
+        return;
+    }
+
+    // Sort: mismatch first, then by count
+    std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+        if (a.sig.blend_mismatch != b.sig.blend_mismatch) {
+            return a.sig.blend_mismatch > b.sig.blend_mismatch;
+        }
+        return a.draw_count > b.draw_count;
+    });
+
+    std::ofstream out(path);
+    out << "# KNACK Effect Draw Signature Summary\n";
+    out << "# Total draws: " << total_draws << "\n";
+    out << "# Unique signatures: " << entries.size() << "\n";
+    out << "# Sorted: mismatch first, then by draw count\n\n";
+    out << "draw_count\tmismatch\tvs_hash\tfs_hash\tgs_hash\ttype\tfmt0\ttile0\thas_gs\tpipe_blend\t"
+           "first_submit\tfirst_draw\n";
+
+    const u32 limit = std::min<u32>(30, (u32)entries.size());
+    for (u32 i = 0; i < limit; ++i) {
+        const auto& e = entries[i];
+        out << e.draw_count << "\t" << e.sig.blend_mismatch << "\t"
+            << fmt::format("0x{:016x}", e.sig.vs_hash) << "\t"
+            << fmt::format("0x{:016x}", e.sig.fs_hash) << "\t"
+            << fmt::format("0x{:016x}", e.sig.gs_hash) << "\t"
+            << EffectTypeName(e.sig.effect_type) << "\t" << e.sig.fmt_0 << "\t" << e.sig.tile_0
+            << "\t" << e.sig.has_gs << "\t" << e.sig.pipe_blend_en << "\t"
+            << e.sig.first_submit << "\t" << e.sig.first_draw << "\n";
+    }
+    out.close();
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_EFFECT_SIGNATURE_SUMMARY path={} sigs={} draws={}", path,
+              entries.size(), total_draws);
 }
 
 } // namespace KnackDiag

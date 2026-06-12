@@ -233,11 +233,29 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         is_effect_draw = KnackDiag::g_current_frame_is_effect.exchange(false);
 
         if (is_effect_draw && knack_flags.effect_diag) {
-            // Log texture descriptors for effect draws
+            // Read actual pipeline bake state from the key
+            const bool pipe_blend_enable =
+                (key.num_color_attachments > 0) ? key.blend_controls[0].enable != 0 : false;
             LOG_DEBUG(Lib_GnmDriver,
-                      "KNACK_EFFECT_DRAW_VK draw={} has_gs={} blend_enabled=1 "
-                      "mrt_mask=0x{:x} num_bound_images={}",
-                      did, regs.stage_enable.gs_en, key.mrt_mask, bound_images.size());
+                      "KNACK_EFFECT_DRAW_VK draw={} has_gs={} pipe_blend={} "
+                      "reg_blend={} mrt_mask=0x{:x} num_bound_images={}",
+                      did, regs.stage_enable.gs_en, pipe_blend_enable,
+                      regs.blend_control[0].enable, key.mrt_mask, bound_images.size());
+
+            // KNACK_BLEND_STATE_MISMATCH: pipeline blend vs register blend
+            if (pipe_blend_enable != (regs.blend_control[0].enable != 0)) {
+                LOG_DEBUG(Lib_GnmDriver,
+                          "KNACK_BLEND_STATE_MISMATCH draw={} pipe_blend={} reg_blend={} "
+                          "pipe_src={} reg_src={} pipe_dst={} reg_dst={} "
+                          "pipe_color_mask=0x{:x} reg_color_mask=0x{:x}",
+                          did, pipe_blend_enable, regs.blend_control[0].enable,
+                          static_cast<u32>(key.blend_controls[0].color_src_factor),
+                          static_cast<u32>(regs.blend_control[0].color_src_factor),
+                          static_cast<u32>(key.blend_controls[0].color_dst_factor),
+                          static_cast<u32>(regs.blend_control[0].color_dst_factor),
+                          static_cast<u32>(key.write_masks[0]),
+                          regs.color_target_mask.GetMask(0));
+            }
         }
 
         // RenderDoc labels for effect draws
@@ -248,11 +266,37 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         }
 
         // Texture descriptor logging
+        u32 tex_fmt_0 = 0, tex_tile_0 = 0, tex_fmt_1 = 0, tex_tile_1 = 0;
         if (is_effect_draw && knack_flags.effect_diag && !bound_images.empty()) {
             for (size_t i = 0; i < bound_images.size(); ++i) {
                 const auto& image = texture_cache.GetImage(bound_images[i]);
                 KnackDiag::LogBoundTexture(static_cast<u32>(i), image, "KNACK_EFFECT_TEX");
+                if (i == 0) {
+                    tex_fmt_0 = static_cast<u32>(image.info.pixel_format);
+                    tex_tile_0 = static_cast<u32>(image.info.tile_mode);
+                }
+                if (i == 1) {
+                    tex_fmt_1 = static_cast<u32>(image.info.pixel_format);
+                    tex_tile_1 = static_cast<u32>(image.info.tile_mode);
+                }
             }
+        }
+
+        // Effect signature tracking
+        if (is_effect_draw && knack_flags.effect_diag) {
+            const bool pipe_bl = (key.num_color_attachments > 0 && key.blend_controls[0].enable);
+            const bool reg_bl = regs.blend_control[0].enable;
+            // Build minimal info for signature
+            KnackDiag::EffectDrawInfo info{};
+            info.vs_hash = key.stage_hashes[0];
+            info.fs_hash = key.stage_hashes[1];
+            info.gs_hash = 0;
+            info.has_geometry_shader = regs.stage_enable.gs_en;
+            info.effect_type = KnackDiag::EffectType::ParticleTrail; // placeholder
+            KnackDiag::EffectSignatureTracker::Instance().RecordDraw(
+                info, (u32)bound_images.size(), tex_fmt_0, tex_tile_0, tex_fmt_1, tex_tile_1,
+                pipe_bl, reg_bl, static_cast<u32>(key.write_masks[0]),
+                regs.color_target_mask.GetMask(0));
         }
     }
 
