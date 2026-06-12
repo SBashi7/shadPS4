@@ -40,22 +40,18 @@ Flags Flags::LoadFromEnv() {
         f.pm4_trace_effects = EnvBool(ENV_PM4_TRACE_EFFECTS, true);
         f.renderdoc_labels = EnvBool(ENV_RENDERDOC_LABELS, true);
         f.pipeline_blend_key_diag = EnvBool(ENV_PIPELINE_BLEND_KEY_DIAG, false);
-        f.disable_effect_pipeline_reuse = EnvBool(ENV_DISABLE_EFFECT_PIPELINE_REUSE, false);
-    // KNACK TEXTURE AUDIT: hardcoded ON for this test build
-    f.texture_audit = true;
-    f.effect_diag = true;
-    f.texture_dump = false;
-    f.texture_dump_max = 20;
-    f.texture_dump_shader = 0;
-    f.texture_dump_top_n = 2;
-    f.renderdoc_labels = false;
-    f.pm4_trace_effects = false;
-    f.fs_summary = false; // disable FS spam
-
-    if (true) { // always set effect_diag for texture audit
-        // already set above
-    }
-    }
+            f.disable_effect_pipeline_reuse = EnvBool(ENV_DISABLE_EFFECT_PIPELINE_REUSE, false);
+        }
+        // KNACK TEXTURE AUDIT: hardcoded ON for this test build (OUTSIDE render_diag block)
+        f.texture_audit = true;
+        f.effect_diag = true;
+        f.texture_dump = false;
+        f.texture_dump_max = 20;
+        f.texture_dump_shader = 0;
+        f.texture_dump_top_n = 2;
+        f.renderdoc_labels = false;
+        f.pm4_trace_effects = false;
+        f.fs_summary = false; // disable FS spam
     return f;
 }
 
