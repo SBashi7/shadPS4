@@ -471,31 +471,32 @@ TextureAuditWriter& TextureAuditWriter::Instance() {
 void TextureAuditWriter::RecordEffectDraw(const TexAuditEntry& entry) {
     std::lock_guard lock(mtx);
 
-    if (entries.empty()) {
-        last_flush = std::chrono::steady_clock::now();
-        // Write CSV header on first entry — use absolute path
+    // Write header on first call
+    static bool header_written = false;
+    if (!header_written) {
+        header_written = true;
         std::filesystem::create_directories("dumps");
         std::ofstream csv("dumps/knack_texture_audit.csv");
         csv << "frame,draw,submit,category,vs_hash,fs_hash,cs_hash,pipe_id,rt_fmt,rt_w,rt_h,"
                "tex_count,img_id,gpu_addr,width,height,depth,pitch,mips,data_fmt,num_fmt,vk_fmt,"
                "srgb,tile,array,tiled,usage,fullscreen_rt\n";
         csv.close();
-        // Register flush on exit
-        static bool exit_registered = false;
-        if (!exit_registered) {
-            exit_registered = true;
-            std::atexit([] { TextureAuditWriter::Instance().Flush(); });
-        }
     }
 
-    entries.push_back(entry);
-
-    const auto now = std::chrono::steady_clock::now();
-    if (entries.size() >= FLUSH_INTERVAL ||
-        std::chrono::duration_cast<std::chrono::seconds>(now - last_flush).count() >=
-            FLUSH_INTERVAL_SEC) {
-        Flush();
-    }
+    // Write immediately (no buffering, survives Alt+F4 kill)
+    std::ofstream csv("dumps/knack_texture_audit.csv", std::ios::app);
+    csv << entry.frame << "," << entry.draw << "," << entry.submit << "," << entry.effect_category
+        << "," << fmt::format("0x{:016x}", entry.vs_hash) << ","
+        << fmt::format("0x{:016x}", entry.fs_hash) << ","
+        << fmt::format("0x{:016x}", entry.cs_hash) << "," << entry.pipeline_id << ","
+        << entry.rt_fmt << "," << entry.rt_w << "," << entry.rt_h << "," << entry.tex_count << ","
+        << entry.img_id << "," << fmt::format("0x{:016x}", entry.gpu_addr) << "," << entry.width
+        << "," << entry.height << "," << entry.depth << "," << entry.pitch << "," << entry.mips
+        << "," << entry.data_fmt << "," << entry.num_fmt << "," << entry.vk_fmt << ","
+        << entry.is_srgb << "," << entry.tile_mode << "," << entry.array_mode << ","
+        << entry.is_tiled << "," << fmt::format("0x{:x}", entry.usage_flags) << ","
+        << entry.is_fullscreen_rt << "\n";
+    csv.close();
 }
 
 void TextureAuditWriter::Flush() {
