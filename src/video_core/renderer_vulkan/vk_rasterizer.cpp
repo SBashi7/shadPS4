@@ -6,6 +6,7 @@
 #include "core/memory.h"
 #include "shader_recompiler/runtime_info.h"
 #include "video_core/amdgpu/liverpool.h"
+#include "video_core/knack_render_diag.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
@@ -223,6 +224,39 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     UpdateDynamicState(pipeline, is_indexed);
     scheduler.BeginRendering(state);
 
+    // KNACK render diagnostics: check for effect draws
+    const auto& knack_flags = KnackDiag::GetFlags();
+    bool is_effect_draw = false;
+    if (knack_flags.AnyEffectDiag()) {
+        u64 did = KnackDiag::g_draw_id.load();
+        const auto& key = pipeline->GetGraphicsKey();
+        is_effect_draw = KnackDiag::g_current_frame_is_effect.exchange(false);
+
+        if (is_effect_draw && knack_flags.effect_diag) {
+            // Log texture descriptors for effect draws
+            LOG_DEBUG(Lib_GnmDriver,
+                      "KNACK_EFFECT_DRAW_VK draw={} has_gs={} blend_enabled=1 "
+                      "mrt_mask=0x{:x} num_bound_images={}",
+                      did, regs.stage_enable.gs_en,
+                      key.mrt_mask, bound_images.size());
+        }
+
+        // RenderDoc labels for effect draws
+        if (is_effect_draw && knack_flags.renderdoc_labels) {
+            ScopeMarkerBegin(fmt::format("KNACK_EFFECT_SUSPECT:draw={}:VS={:016x}:FS={:016x}",
+                                         did, key.stage_hashes[0], key.stage_hashes[1]),
+                             false);
+        }
+
+        // Texture descriptor logging
+        if (is_effect_draw && knack_flags.effect_diag && !bound_images.empty()) {
+            for (size_t i = 0; i < bound_images.size(); ++i) {
+                const auto& image = texture_cache.GetImage(bound_images[i]);
+                KnackDiag::LogBoundTexture(static_cast<u32>(i), image, "KNACK_EFFECT_TEX");
+            }
+        }
+    }
+
     const auto& vs_info = pipeline->GetStage(Shader::LogicalStage::Vertex);
     const auto& fetch_shader = pipeline->GetFetchShader();
     const auto [vertex_offset, instance_offset] = GetDrawOffsets(regs, vs_info, fetch_shader);
@@ -236,6 +270,11 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     } else {
         cmdbuf.draw(regs.num_indices, regs.num_instances.NumInstances(), vertex_offset,
                     instance_offset);
+    }
+
+    // End effect scope marker
+    if (is_effect_draw && knack_flags.renderdoc_labels) {
+        ScopeMarkerEnd(false);
     }
 
     ResetBindings();
@@ -332,9 +371,37 @@ void Rasterizer::DispatchDirect() {
     scheduler.EndRendering();
     pipeline->BindResources(set_writes, buffer_barriers, push_data);
 
+    // KNACK render diagnostics: check compute effect shaders
+    const auto& knack_flags = KnackDiag::GetFlags();
+    bool is_effect_dispatch = KnackDiag::g_current_frame_is_effect.exchange(false);
+
+    if (is_effect_dispatch && knack_flags.effect_diag) {
+        const auto& key = pipeline->GetComputeKey();
+        LOG_DEBUG(Lib_GnmDriver,
+                  "KNACK_EFFECT_COMPUTE dispatch dims={}x{}x{} hash={:016x}",
+                  cs_program.dim_x, cs_program.dim_y, cs_program.dim_z, key.value);
+    }
+
+    if (is_effect_dispatch && knack_flags.renderdoc_labels) {
+        const auto& key = pipeline->GetComputeKey();
+        ScopeMarkerBegin(fmt::format("KNACK_EFFECT_COMPUTE:hash={:016x}", key.value), false);
+    }
+
+    // Texture descriptor logging for compute effects
+    if (is_effect_dispatch && knack_flags.effect_diag && !bound_images.empty()) {
+        for (size_t i = 0; i < bound_images.size(); ++i) {
+            const auto& image = texture_cache.GetImage(bound_images[i]);
+            KnackDiag::LogBoundTexture(static_cast<u32>(i), image, "KNACK_COMPUTE_TEX");
+        }
+    }
+
     const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline->Handle());
     cmdbuf.dispatch(cs_program.dim_x, cs_program.dim_y, cs_program.dim_z);
+
+    if (is_effect_dispatch && knack_flags.renderdoc_labels) {
+        ScopeMarkerEnd(false);
+    }
 
     ResetBindings();
 }

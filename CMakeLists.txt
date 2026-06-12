@@ -1033,6 +1033,8 @@ set(VIDEO_CORE src/video_core/amdgpu/cb_db_extent.h
                src/video_core/amdgpu/pixel_format.cpp
                src/video_core/amdgpu/pixel_format.h
                src/video_core/amdgpu/pm4_cmds.h
+               src/video_core/knack_render_diag.h
+               src/video_core/knack_render_diag.cpp
                src/video_core/screenshot.h
                src/video_core/screenshot.cpp
                src/video_core/amdgpu/pm4_opcodes.h

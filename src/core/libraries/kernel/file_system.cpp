@@ -18,6 +18,7 @@
 #include "core/file_sys/devices/rng_device.h"
 #include "core/file_sys/devices/srandom_device.h"
 #include "core/file_sys/devices/urandom_device.h"
+#include "video_core/knack_render_diag.h"
 #include "core/file_sys/directories/normal_directory.h"
 #include "core/file_sys/directories/pfs_directory.h"
 #include "core/file_sys/fs.h"
@@ -712,9 +713,17 @@ s32 PS4_SYSV_ABI sceKernelStat(const char* path, OrbisKernelStat* sb) {
     s32 result = posix_stat(path, sb);
     if (result < 0) {
         LOG_ERROR(Kernel_Fs, "sceKernelStat: error = {}, path = {}", *__Error(), path);
+        // KNACK FS summary: record missing file
+        KnackDiag::KnackFsRecordMissing(std::string(path));
         return ErrnoToSceKernelError(*__Error());
     }
     LOG_DEBUG(Kernel_Fs, "sceKernelStat: success, path = {}", path);
+    // KNACK FS summary: detect cdata fallback
+    std::string_view psv{path};
+    if (psv.find(".cdata") != std::string_view::npos ||
+        psv.find("common.cdata") != std::string_view::npos) {
+        KnackDiag::KnackFsRecordCdataOpen(std::string(path));
+    }
     return result;
 }
 
