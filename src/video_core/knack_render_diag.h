@@ -13,20 +13,14 @@
 
 #include "common/types.h"
 
-// Forward declarations — no heavy includes here to avoid circular deps
+// Forward declarations — minimal to avoid type conflicts
 namespace AmdGpu {
-struct Regs;
+union Regs;
 }
 
 namespace VideoCore {
-struct ImageId;
 class Image;
-class TextureCache;
 } // namespace VideoCore
-
-namespace Vulkan {
-class Rasterizer;
-} // namespace Vulkan
 
 // ─── Master enable ──────────────────────────────────────────────────
 // KNACK_RENDER_DIAG=1  → enables all diag subset flags below
