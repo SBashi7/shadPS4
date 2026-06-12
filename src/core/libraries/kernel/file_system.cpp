@@ -28,7 +28,12 @@
 #include "core/libraries/network/sockets.h"
 #include "core/memory.h"
 #include "kernel.h"
-#include "video_core/knack_render_diag.h"
+
+// KNACK FS summary extern decls (no full include to avoid ImageId type conflicts)
+namespace KnackDiag {
+void KnackFsRecordMissing(const std::string& path);
+void KnackFsRecordCdataOpen(const std::string& path);
+} // namespace KnackDiag
 
 #ifdef _WIN32
 #include <io.h>
