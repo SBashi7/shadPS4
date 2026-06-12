@@ -83,6 +83,8 @@ u64 Flags::EnvU64(const char* name, u64 def) {
 void Initialize() {
     std::call_once(init_once, [] {
         g_flags = Flags::LoadFromEnv();
+        LOG_INFO(Common, "=== KNACK DIAG: texture_audit={} effect_diag={} render={} ===",
+                 g_flags.texture_audit, g_flags.effect_diag, g_flags.render_diag);
         if (g_flags.render_diag) {
             LOG_INFO(Common, "=== KNACK RENDER DIAGNOSTICS ENABLED ===");
             LOG_INFO(Common, "  effect_diag       = {}", g_flags.effect_diag);
