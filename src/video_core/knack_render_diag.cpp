@@ -97,7 +97,7 @@ const char* EffectTypeName(EffectType t) {
 
 // ─── EffectDrawInfo ────────────────────────────────────────────────
 EffectDrawInfo EffectDrawInfo::FromRegs(const AmdGpu::Regs& regs, u64 submit, u64 draw,
-                                         size_t pkt_off, u32 pkt_idx) {
+                                       size_t pkt_off, u32 pkt_idx) {
     EffectDrawInfo info{};
     info.submit_id = submit;
     info.draw_id = draw;
@@ -146,12 +146,10 @@ bool EffectDrawInfo::IsEffect() const {
 EffectType EffectDrawInfo::Classify() const {
     if (blend_enabled) {
         const bool is_additive =
-            (color_src_factor ==
-             static_cast<u32>(AmdGpu::BlendControl::BlendFactor::SrcAlpha)) &&
+            (color_src_factor == static_cast<u32>(AmdGpu::BlendControl::BlendFactor::SrcAlpha)) &&
             (color_dst_factor == static_cast<u32>(AmdGpu::BlendControl::BlendFactor::One));
         const bool is_alpha_blend =
-            (color_src_factor ==
-             static_cast<u32>(AmdGpu::BlendControl::BlendFactor::SrcAlpha)) &&
+            (color_src_factor == static_cast<u32>(AmdGpu::BlendControl::BlendFactor::SrcAlpha)) &&
             (color_dst_factor ==
              static_cast<u32>(AmdGpu::BlendControl::BlendFactor::OneMinusSrcAlpha));
 
@@ -189,12 +187,12 @@ void EffectDrawInfo::Log() const {
               "write_mask=[{},{},{},{},{},{},{},{}] mrt_mask={} "
               "depth_test={} depth_write={} has_gs={} prim_type={} "
               "num_idx={} num_inst={}",
-              submit_id, draw_id, EffectTypeName(effect_type), packet_offset, packet_index,
-              vs_hash, fs_hash, gs_hash, blend_enabled, color_src_factor, color_dst_factor,
-              color_func, alpha_src_factor, alpha_dst_factor, alpha_func, write_mask[0],
-              write_mask[1], write_mask[2], write_mask[3], write_mask[4], write_mask[5],
-              write_mask[6], write_mask[7], mrt_mask, depth_test, depth_write,
-              has_geometry_shader, prim_type, num_indices, num_instances);
+              submit_id, draw_id, EffectTypeName(effect_type), packet_offset, packet_index, vs_hash,
+              fs_hash, gs_hash, blend_enabled, color_src_factor, color_dst_factor, color_func,
+              alpha_src_factor, alpha_dst_factor, alpha_func, write_mask[0], write_mask[1],
+              write_mask[2], write_mask[3], write_mask[4], write_mask[5], write_mask[6],
+              write_mask[7], mrt_mask, depth_test, depth_write, has_geometry_shader, prim_type,
+              num_indices, num_instances);
 }
 
 // ─── Texture descriptor logging ────────────────────────────────────
@@ -202,16 +200,16 @@ void LogBoundTexture(u32 slot, const VideoCore::Image& image, const char* prefix
     LOG_DEBUG(Lib_GnmDriver,
               "{} slot={} gpu_addr=0x{:016x} size={}x{}x{} fmt={} tile={} "
               "mips={} samples={} pitch={} usage=0x{:x} is_depth={}",
-              prefix, slot, image.info.guest_address, image.info.size.width,
-              image.info.size.height, image.info.size.depth,
-              static_cast<u32>(image.info.pixel_format), static_cast<u32>(image.info.tile_mode),
-              image.info.resources.levels, image.info.num_samples, image.info.pitch,
-              static_cast<u32>(image.usage_flags), image.info.props.is_depth);
+              prefix, slot, image.info.guest_address, image.info.size.width, image.info.size.height,
+              image.info.size.depth, static_cast<u32>(image.info.pixel_format),
+              static_cast<u32>(image.info.tile_mode), image.info.resources.levels,
+              image.info.num_samples, image.info.pitch, static_cast<u32>(image.usage_flags),
+              image.info.props.is_depth);
 }
 
 // ─── PM4 drift trace ───────────────────────────────────────────────
-void LogPm4DriftContext(std::span<const u32> dcb, size_t current_offset, u32 header_raw,
-                         u32 type, bool skipped) {
+void LogPm4DriftContext(std::span<const u32> dcb, size_t current_offset, u32 header_raw, u32 type,
+                       bool skipped) {
     if (!g_flags.pm4_trace_effects) {
         return;
     }
@@ -279,9 +277,8 @@ public:
         e.first_ts = current_ts;
         e.last_ts = current_ts;
         e.is_csv = (path.find(".csv") != std::string::npos);
-        e.is_hostapp =
-            (path.find("/hostapp/") != std::string::npos ||
-             path.find("\\hostapp\\") != std::string::npos);
+        e.is_hostapp = (path.find("/hostapp/") != std::string::npos ||
+                        path.find("\\hostapp\\") != std::string::npos);
         entries.push_back(e);
     }
 
@@ -305,8 +302,8 @@ public:
         out << "# Total unique paths: " << entries.size() << "\n\n";
         out << "path\tcount\tfirst_ts\tlast_ts\tis_csv\tis_hostapp\tcdata_found\n";
         for (const auto& e : entries) {
-            out << e.path << "\t" << e.count << "\t" << e.first_ts << "\t" << e.last_ts
-                << "\t" << e.is_csv << "\t" << e.is_hostapp << "\t" << e.cdata_found << "\n";
+            out << e.path << "\t" << e.count << "\t" << e.first_ts << "\t" << e.last_ts << "\t"
+                << e.is_csv << "\t" << e.is_hostapp << "\t" << e.cdata_found << "\n";
         }
         out.close();
         LOG_DEBUG(Lib_GnmDriver, "KNACK_FS_SUMMARY_WRITTEN path={} entries={}", filename,

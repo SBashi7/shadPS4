@@ -237,14 +237,13 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
             LOG_DEBUG(Lib_GnmDriver,
                       "KNACK_EFFECT_DRAW_VK draw={} has_gs={} blend_enabled=1 "
                       "mrt_mask=0x{:x} num_bound_images={}",
-                      did, regs.stage_enable.gs_en,
-                      key.mrt_mask, bound_images.size());
+                      did, regs.stage_enable.gs_en, key.mrt_mask, bound_images.size());
         }
 
         // RenderDoc labels for effect draws
         if (is_effect_draw && knack_flags.renderdoc_labels) {
-            ScopeMarkerBegin(fmt::format("KNACK_EFFECT_SUSPECT:draw={}:VS={:016x}:FS={:016x}",
-                                         did, key.stage_hashes[0], key.stage_hashes[1]),
+            ScopeMarkerBegin(fmt::format("KNACK_EFFECT_SUSPECT:draw={}:VS={:016x}:FS={:016x}", did,
+                                         key.stage_hashes[0], key.stage_hashes[1]),
                              false);
         }
 
@@ -376,10 +375,8 @@ void Rasterizer::DispatchDirect() {
     bool is_effect_dispatch = KnackDiag::g_current_frame_is_effect.exchange(false);
 
     if (is_effect_dispatch && knack_flags.effect_diag) {
-        LOG_DEBUG(Lib_GnmDriver,
-                  "KNACK_EFFECT_COMPUTE dispatch dims={}x{}x{} cs_addr=0x{:016x}",
-                  cs_program.dim_x, cs_program.dim_y, cs_program.dim_z,
-                  cs_program.address);
+        LOG_DEBUG(Lib_GnmDriver, "KNACK_EFFECT_COMPUTE dispatch dims={}x{}x{} cs_addr=0x{:016x}",
+                  cs_program.dim_x, cs_program.dim_y, cs_program.dim_z, cs_program.address);
     }
 
     if (is_effect_dispatch && knack_flags.renderdoc_labels) {

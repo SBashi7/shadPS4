@@ -1301,10 +1301,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             // KNACK render diagnostics: log effect draws
             if (knack_flags.AnyEffectDiag()) {
                 const bool is_draw_op =
-                    opcode == PM4ItOpcode::DrawIndex2 ||
-                    opcode == PM4ItOpcode::DrawIndexOffset2 ||
-                    opcode == PM4ItOpcode::DrawIndexAuto ||
-                    opcode == PM4ItOpcode::DrawIndirect ||
+                    opcode == PM4ItOpcode::DrawIndex2 || opcode == PM4ItOpcode::DrawIndexOffset2 ||
+                    opcode == PM4ItOpcode::DrawIndexAuto || opcode == PM4ItOpcode::DrawIndirect ||
                     opcode == PM4ItOpcode::DrawIndirectMulti ||
                     opcode == PM4ItOpcode::DrawIndexIndirect ||
                     opcode == PM4ItOpcode::DrawIndexIndirectMulti ||
@@ -1315,9 +1313,9 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 if (is_draw_op) {
                     u64 did = KnackDiag::g_draw_id.fetch_add(1) + 1;
                     const size_t pkt_off = reinterpret_cast<const u32*>(header) -
-                                            reinterpret_cast<const u32*>(base_addr);
+                                           reinterpret_cast<const u32*>(base_addr);
                     auto info = KnackDiag::EffectDrawInfo::FromRegs(regs, knack_submit_id, did,
-                                                                     pkt_off, packet_index);
+                                                                    pkt_off, packet_index);
                     if (info.IsEffect()) {
                         info.Log();
                         KnackDiag::g_current_frame_is_effect.store(true);
@@ -1327,8 +1325,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                         LOG_DEBUG(Lib_GnmDriver,
                                   "KNACK_PM4_EFFECT_CONTEXT submit={} draw={} opcode={} "
                                   "pkt_off={} pkt_idx={}",
-                                  knack_submit_id, did, static_cast<u32>(opcode),
-                                  pkt_off, packet_index);
+                                  knack_submit_id, did, static_cast<u32>(opcode), pkt_off,
+                                  packet_index);
                     }
                 }
             }

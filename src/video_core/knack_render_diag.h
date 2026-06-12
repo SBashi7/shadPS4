@@ -115,8 +115,8 @@ struct EffectDrawInfo {
     u32 prim_type;
 
     // Implementation in .cpp to avoid heavy includes
-    static EffectDrawInfo FromRegs(const AmdGpu::Regs& regs, u64 submit, u64 draw,
-                                   size_t pkt_off, u32 pkt_idx);
+    static EffectDrawInfo FromRegs(const AmdGpu::Regs& regs, u64 submit, u64 draw, size_t pkt_off,
+                                   u32 pkt_idx);
     bool IsEffect() const;
     EffectType Classify() const;
     void Log() const;
@@ -128,8 +128,8 @@ void LogBoundTexture(u32 slot, const VideoCore::Image& image, const char* prefix
 
 // ─── PM4 drift trace ───────────────────────────────────────────────
 
-void LogPm4DriftContext(std::span<const u32> dcb, size_t current_offset,
-                         u32 header_raw, u32 type, bool skipped);
+void LogPm4DriftContext(std::span<const u32> dcb, size_t current_offset, u32 header_raw, u32 type,
+                        bool skipped);
 
 // ─── FS summary ────────────────────────────────────────────────────
 

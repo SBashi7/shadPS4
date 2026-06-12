@@ -18,7 +18,6 @@
 #include "core/file_sys/devices/rng_device.h"
 #include "core/file_sys/devices/srandom_device.h"
 #include "core/file_sys/devices/urandom_device.h"
-#include "video_core/knack_render_diag.h"
 #include "core/file_sys/directories/normal_directory.h"
 #include "core/file_sys/directories/pfs_directory.h"
 #include "core/file_sys/fs.h"
@@ -29,6 +28,7 @@
 #include "core/libraries/network/sockets.h"
 #include "core/memory.h"
 #include "kernel.h"
+#include "video_core/knack_render_diag.h"
 
 #ifdef _WIN32
 #include <io.h>
