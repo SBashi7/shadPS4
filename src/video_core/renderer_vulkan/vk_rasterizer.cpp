@@ -279,6 +279,78 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                     tex_fmt_1 = static_cast<u32>(image.info.pixel_format);
                     tex_tile_1 = static_cast<u32>(image.info.tile_mode);
                 }
+
+                // Texture audit CSV recording
+                if (knack_flags.texture_audit) {
+                    KnackDiag::TexAuditEntry te{};
+                    te.frame = KnackDiag::g_frame_id.load();
+                    te.draw = did;
+                    te.submit = KnackDiag::g_submit_id.load();
+                    te.effect_category = "PARTICLE_TRAIL";
+                    te.vs_hash = key.stage_hashes[0];
+                    te.fs_hash = key.stage_hashes[1];
+                    te.cs_hash = 0;
+                    te.pipeline_id = 0;
+                    te.tex_count = (u32)bound_images.size();
+                    te.img_id = static_cast<u32>(i);
+                    te.gpu_addr = image.info.guest_address;
+                    te.width = image.info.size.width;
+                    te.height = image.info.size.height;
+                    te.depth = image.info.size.depth;
+                    te.pitch = image.info.pitch;
+                    te.mips = image.info.resources.levels;
+                    te.data_fmt = 0; // no remap direct access
+                    te.num_fmt = 0;
+                    te.vk_fmt = static_cast<u32>(image.info.pixel_format);
+                    te.is_srgb = false;
+                    te.tile_mode = static_cast<u32>(image.info.tile_mode);
+                    te.array_mode = static_cast<u32>(image.info.array_mode);
+                    te.is_tiled = image.info.props.is_tiled;
+                    te.usage_flags = static_cast<u32>(image.usage_flags);
+                    te.is_fullscreen_rt =
+                        (image.info.size.width >= 2560 && image.info.size.height >= 1440);
+                    // RT info (from first image or regs)
+                    if (key.num_color_attachments > 0) {
+                        te.rt_fmt = static_cast<u32>(key.color_buffers[0].data_format);
+                        te.rt_w = image.info.size.width;
+                        te.rt_h = image.info.size.height;
+                    }
+                    KnackDiag::TextureAuditRecord(te);
+                }
+
+                // Targeted texture dump (descriptor only, no GPU readback)
+                if (knack_flags.texture_dump && KnackDiag::TextureDumpManager::Instance().ShouldDump(
+                                                   key.stage_hashes[0], key.stage_hashes[1])) {
+                    std::string dir = fmt::format("dumps/knack_effects/frame{:04d}_draw{:04d}_"
+                                                  "VS{:08x}_FS{:08x}",
+                                                  KnackDiag::g_frame_id.load(), did,
+                                                  (u32)(key.stage_hashes[0] & 0xFFFFFFFF),
+                                                  (u32)(key.stage_hashes[1] & 0xFFFFFFFF));
+                    std::filesystem::create_directories(dir);
+                    std::string json_path = dir + "/descriptor.json";
+                    std::ofstream json(json_path);
+                    json << "{\n";
+                    json << "  \"draw\": " << did << ",\n";
+                    json << "  \"submit\": " << KnackDiag::g_submit_id.load() << ",\n";
+                    json << "  \"frame\": " << KnackDiag::g_frame_id.load() << ",\n";
+                    json << "  \"vs_hash\": \"0x" << fmt::format("{:016x}", key.stage_hashes[0])
+                         << "\",\n";
+                    json << "  \"fs_hash\": \"0x" << fmt::format("{:016x}", key.stage_hashes[1])
+                         << "\",\n";
+                    json << "  \"tex_index\": " << i << ",\n";
+                    json << "  \"gpu_addr\": \"0x"
+                         << fmt::format("{:016x}", image.info.guest_address) << "\",\n";
+                    json << "  \"width\": " << image.info.size.width << ",\n";
+                    json << "  \"height\": " << image.info.size.height << ",\n";
+                    json << "  \"format\": " << static_cast<u32>(image.info.pixel_format) << ",\n";
+                    json << "  \"tile_mode\": " << static_cast<u32>(image.info.tile_mode) << ",\n";
+                    json << "  \"mips\": " << image.info.resources.levels << ",\n";
+                    json << "  \"pitch\": " << image.info.pitch << "\n";
+                    json << "}\n";
+                    json.close();
+                    KnackDiag::TextureDumpManager::Instance().RecordDump();
+                    LOG_DEBUG(Lib_GnmDriver, "KNACK_TEXTURE_DUMP dir={} tex={}", dir, i);
+                }
             }
         }
 

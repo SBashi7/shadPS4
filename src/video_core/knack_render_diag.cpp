@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <xxhash.h>
 #include "common/logging/log.h"
 #include "video_core/amdgpu/pm4_cmds.h"
@@ -39,6 +41,15 @@ Flags Flags::LoadFromEnv() {
         f.renderdoc_labels = EnvBool(ENV_RENDERDOC_LABELS, true);
         f.pipeline_blend_key_diag = EnvBool(ENV_PIPELINE_BLEND_KEY_DIAG, false);
         f.disable_effect_pipeline_reuse = EnvBool(ENV_DISABLE_EFFECT_PIPELINE_REUSE, false);
+        // Texture audit sub-flags (only active when render_diag=1 && texture_audit=1 or standalone)
+        f.texture_audit = EnvBool(ENV_TEXTURE_AUDIT, false);
+        if (f.texture_audit || EnvBool(ENV_TEXTURE_DUMP, false)) {
+            f.texture_dump = EnvBool(ENV_TEXTURE_DUMP, false);
+            f.texture_dump_max = EnvU32(ENV_TEXTURE_DUMP_MAX, 20);
+            f.texture_dump_shader = EnvU64(ENV_TEXTURE_DUMP_SHADER, 0);
+            f.texture_dump_top_n = EnvU32(ENV_TEXTURE_DUMP_TOP_N, 2);
+            f.effect_diag = true; // texture audit needs effect detection
+        }
     }
     return f;
 }
@@ -50,6 +61,18 @@ bool Flags::EnvBool(const char* name, bool def) {
     }
     std::string s(val);
     return s == "1" || s == "true" || s == "yes" || s == "on";
+}
+
+u32 Flags::EnvU32(const char* name, u32 def) {
+    const char* val = std::getenv(name);
+    if (!val) return def;
+    return static_cast<u32>(std::strtoul(val, nullptr, 0));
+}
+
+u64 Flags::EnvU64(const char* name, u64 def) {
+    const char* val = std::getenv(name);
+    if (!val) return def;
+    return std::strtoull(val, nullptr, 0);
 }
 
 void Initialize() {
@@ -429,6 +452,109 @@ void EffectSignatureTracker::WriteSummary(const std::string& path) {
     out.close();
     LOG_DEBUG(Lib_GnmDriver, "KNACK_EFFECT_SIGNATURE_SUMMARY path={} sigs={} draws={}", path,
               entries.size(), total_draws);
+}
+
+void TextureAuditRecord(const TexAuditEntry& entry) {
+    TextureAuditWriter::Instance().RecordEffectDraw(entry);
+}
+
+// ─── Texture audit writer implementation ───────────────────────────
+
+TextureAuditWriter& TextureAuditWriter::Instance() {
+    static TextureAuditWriter instance;
+    return instance;
+}
+
+void TextureAuditWriter::RecordEffectDraw(const TexAuditEntry& entry) {
+    std::lock_guard lock(mtx);
+
+    if (entries.empty()) {
+        last_flush = std::chrono::steady_clock::now();
+        // Write CSV header on first entry
+        std::filesystem::create_directories("dumps");
+        std::ofstream csv("dumps/knack_texture_audit.csv");
+        csv << "frame,draw,submit,category,vs_hash,fs_hash,cs_hash,pipe_id,rt_fmt,rt_w,rt_h,"
+               "tex_count,img_id,gpu_addr,width,height,depth,pitch,mips,data_fmt,num_fmt,vk_fmt,"
+               "srgb,tile,array,tiled,usage,fullscreen_rt\n";
+        csv.close();
+    }
+
+    entries.push_back(entry);
+
+    const auto now = std::chrono::steady_clock::now();
+    if (entries.size() >= FLUSH_INTERVAL ||
+        std::chrono::duration_cast<std::chrono::seconds>(now - last_flush).count() >=
+            FLUSH_INTERVAL_SEC) {
+        Flush();
+    }
+}
+
+void TextureAuditWriter::Flush() {
+    if (entries.empty()) return;
+
+    std::ofstream csv("dumps/knack_texture_audit.csv", std::ios::app);
+    for (const auto& e : entries) {
+        csv << e.frame << "," << e.draw << "," << e.submit << "," << e.effect_category << ","
+            << fmt::format("0x{:016x}", e.vs_hash) << "," << fmt::format("0x{:016x}", e.fs_hash)
+            << "," << fmt::format("0x{:016x}", e.cs_hash) << "," << e.pipeline_id << ","
+            << e.rt_fmt << "," << e.rt_w << "," << e.rt_h << "," << e.tex_count << "," << e.img_id
+            << "," << fmt::format("0x{:016x}", e.gpu_addr) << "," << e.width << "," << e.height
+            << "," << e.depth << "," << e.pitch << "," << e.mips << "," << e.data_fmt << ","
+            << e.num_fmt << "," << e.vk_fmt << "," << e.is_srgb << "," << e.tile_mode << ","
+            << e.array_mode << "," << e.is_tiled << "," << fmt::format("0x{:x}", e.usage_flags)
+            << "," << e.is_fullscreen_rt << "\n";
+    }
+    csv.close();
+
+    LOG_DEBUG(Lib_GnmDriver, "KNACK_TEXTURE_AUDIT_FLUSH entries={}", entries.size());
+    entries.clear();
+    last_flush = std::chrono::steady_clock::now();
+}
+
+// ─── Targeted texture dump ─────────────────────────────────────────
+
+TextureDumpManager& TextureDumpManager::Instance() {
+    static TextureDumpManager instance;
+    return instance;
+}
+
+void TextureDumpManager::RegisterSuspect(u64 vs_hash, u64 fs_hash, u64 draw_id, u64 gpu_addr,
+                                          u32 size_bytes) {
+    std::lock_guard lock(mtx);
+    // Count by combined hash
+    u64 combined = vs_hash ^ (fs_hash << 32);
+    shader_suspect_count[combined]++;
+}
+
+bool TextureDumpManager::ShouldDump(u64 vs_hash, u64 fs_hash) const {
+    if (!g_flags.texture_dump) return false;
+
+    // If specific shader requested
+    if (g_flags.texture_dump_shader != 0) {
+        return vs_hash == g_flags.texture_dump_shader || fs_hash == g_flags.texture_dump_shader;
+    }
+
+    // Auto: dump top N
+    u64 combined = vs_hash ^ (fs_hash << 32);
+    // Compare against top N (rough implementation)
+    // For now, just allow until we have enough data
+    return CanDump();
+}
+
+bool TextureDumpManager::CanDump() const {
+    return total_dumps < g_flags.texture_dump_max;
+}
+
+void TextureDumpManager::RecordDump() {
+    total_dumps++;
+}
+
+const std::string& TextureDumpManager::GetDumpDir() const {
+    return dump_dir;
+}
+
+void TextureDumpRecordSuspect(u64 vs, u64 fs, u64 draw, u64 addr, u32 bytes) {
+    TextureDumpManager::Instance().RegisterSuspect(vs, fs, draw, addr, bytes);
 }
 
 } // namespace KnackDiag

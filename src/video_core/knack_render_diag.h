@@ -37,6 +37,11 @@ inline constexpr auto ENV_PM4_TRACE_EFFECTS = "KNACK_PM4_TRACE_EFFECTS";
 inline constexpr auto ENV_RENDERDOC_LABELS = "KNACK_RENDERDOC_LABELS";
 inline constexpr auto ENV_PIPELINE_BLEND_KEY_DIAG = "KNACK_PIPELINE_BLEND_KEY_DIAG";
 inline constexpr auto ENV_DISABLE_EFFECT_PIPELINE_REUSE = "KNACK_DISABLE_EFFECT_PIPELINE_REUSE";
+inline constexpr auto ENV_TEXTURE_AUDIT = "KNACK_TEXTURE_AUDIT";
+inline constexpr auto ENV_TEXTURE_DUMP = "KNACK_TEXTURE_DUMP";
+inline constexpr auto ENV_TEXTURE_DUMP_MAX = "KNACK_TEXTURE_DUMP_MAX";
+inline constexpr auto ENV_TEXTURE_DUMP_SHADER = "KNACK_TEXTURE_DUMP_SHADER";
+inline constexpr auto ENV_TEXTURE_DUMP_TOP_N = "KNACK_TEXTURE_DUMP_TOP_N";
 
 // ─── Feature flags ──────────────────────────────────────────────────
 struct Flags {
@@ -48,6 +53,11 @@ struct Flags {
     bool renderdoc_labels = false;
     bool pipeline_blend_key_diag = false;
     bool disable_effect_pipeline_reuse = false;
+    bool texture_audit = false;       // Texture audit CSV
+    bool texture_dump = false;        // Dump suspect textures
+    u32 texture_dump_max = 20;        // Max dumps per run
+    u64 texture_dump_shader = 0;      // Only dump for this specific shader hash (0=top auto)
+    u32 texture_dump_top_n = 2;       // Dump top N suspect shaders
 
     static Flags LoadFromEnv();
 
@@ -57,6 +67,8 @@ struct Flags {
 
 private:
     static bool EnvBool(const char* name, bool def);
+    static u32 EnvU32(const char* name, u32 def);
+    static u64 EnvU64(const char* name, u64 def);
 };
 
 // ─── Global state (initialized once at startup) ─────────────────────
@@ -178,5 +190,69 @@ private:
     std::vector<EffectSignature> entries;
     u64 total_draws = 0;
 };
+
+// ─── Texture Audit ─────────────────────────────────────────────────
+
+struct TexAuditEntry {
+    u64 frame;
+    u64 draw;
+    u64 submit;
+    const char* effect_category;
+    u64 vs_hash, fs_hash, cs_hash;
+    u32 pipeline_id;
+    u32 rt_fmt;
+    u32 rt_w, rt_h;
+    u32 tex_count;
+    u32 img_id;
+    u64 gpu_addr;
+    u32 width, height, depth;
+    u32 pitch;
+    u32 mips;
+    u32 data_fmt, num_fmt;
+    u32 vk_fmt;
+    bool is_srgb;
+    u32 tile_mode;
+    u32 array_mode;
+    bool is_tiled;
+    u32 usage_flags;
+    bool is_fullscreen_rt;
+};
+
+class TextureAuditWriter {
+public:
+    static TextureAuditWriter& Instance();
+    void RecordEffectDraw(const TexAuditEntry& entry);
+    void Flush();
+
+private:
+    std::mutex mtx;
+    std::vector<TexAuditEntry> entries;
+    std::chrono::steady_clock::time_point last_flush;
+    static constexpr u32 FLUSH_INTERVAL = 250; // draws
+    static constexpr u32 FLUSH_INTERVAL_SEC = 5;
+};
+
+// Called from vk_rasterizer for each suspect effect draw
+void TextureAuditRecord(const TexAuditEntry& entry);
+
+// ─── Targeted Texture Dump ─────────────────────────────────────────
+
+class TextureDumpManager {
+public:
+    static TextureDumpManager& Instance();
+    void RegisterSuspect(u64 vs_hash, u64 fs_hash, u64 draw_id, u64 gpu_addr, u32 size_bytes);
+    bool ShouldDump(u64 vs_hash, u64 fs_hash) const;
+    bool CanDump() const; // respects max dump limit
+    void RecordDump();
+    const std::string& GetDumpDir() const;
+
+private:
+    std::mutex mtx;
+    std::map<u64, u32> shader_suspect_count; // hash -> count
+    u32 total_dumps = 0;
+    std::string dump_dir;
+};
+
+void TextureDumpRecordSuspect(u64 vs, u64 fs, u64 draw, u64 addr, u32 bytes);
 
 } // namespace KnackDiag
