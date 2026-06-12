@@ -473,13 +473,19 @@ void TextureAuditWriter::RecordEffectDraw(const TexAuditEntry& entry) {
 
     if (entries.empty()) {
         last_flush = std::chrono::steady_clock::now();
-        // Write CSV header on first entry
+        // Write CSV header on first entry — use absolute path
         std::filesystem::create_directories("dumps");
         std::ofstream csv("dumps/knack_texture_audit.csv");
         csv << "frame,draw,submit,category,vs_hash,fs_hash,cs_hash,pipe_id,rt_fmt,rt_w,rt_h,"
                "tex_count,img_id,gpu_addr,width,height,depth,pitch,mips,data_fmt,num_fmt,vk_fmt,"
                "srgb,tile,array,tiled,usage,fullscreen_rt\n";
         csv.close();
+        // Register flush on exit
+        static bool exit_registered = false;
+        if (!exit_registered) {
+            exit_registered = true;
+            std::atexit([] { TextureAuditWriter::Instance().Flush(); });
+        }
     }
 
     entries.push_back(entry);
