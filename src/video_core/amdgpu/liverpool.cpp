@@ -323,6 +323,11 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     const bool trace_enabled = this_submit < 5;
     constexpr u32 TRACE_MAX_PACKETS = 1000;
 
+    // KNACK render diagnostics init
+    KnackDiag::Initialize();
+    const auto& knack_flags = KnackDiag::GetFlags();
+    const u64 knack_submit_id = KnackDiag::g_submit_id.fetch_add(1);
+
     LOG_DEBUG(Lib_GnmDriver, "KNACK_PROCESSGRAPHICS_ENTER submit={} dcb_size={}", this_submit,
               initial_dcb_size);
     LOG_DEBUG(Lib_GnmDriver, "KNACK_GPU_TASK_ACTIVE submit={}", this_submit);

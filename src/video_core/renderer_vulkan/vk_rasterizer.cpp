@@ -376,15 +376,15 @@ void Rasterizer::DispatchDirect() {
     bool is_effect_dispatch = KnackDiag::g_current_frame_is_effect.exchange(false);
 
     if (is_effect_dispatch && knack_flags.effect_diag) {
-        const auto& key = pipeline->GetComputeKey();
         LOG_DEBUG(Lib_GnmDriver,
-                  "KNACK_EFFECT_COMPUTE dispatch dims={}x{}x{} hash={:016x}",
-                  cs_program.dim_x, cs_program.dim_y, cs_program.dim_z, key.value);
+                  "KNACK_EFFECT_COMPUTE dispatch dims={}x{}x{} cs_addr=0x{:016x}",
+                  cs_program.dim_x, cs_program.dim_y, cs_program.dim_z,
+                  cs_program.address);
     }
 
     if (is_effect_dispatch && knack_flags.renderdoc_labels) {
-        const auto& key = pipeline->GetComputeKey();
-        ScopeMarkerBegin(fmt::format("KNACK_EFFECT_COMPUTE:hash={:016x}", key.value), false);
+        ScopeMarkerBegin(fmt::format("KNACK_EFFECT_COMPUTE:addr=0x{:016x}", cs_program.address),
+                         false);
     }
 
     // Texture descriptor logging for compute effects
