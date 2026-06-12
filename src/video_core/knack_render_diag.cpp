@@ -380,7 +380,7 @@ void EffectSignatureTracker::RecordDraw(const EffectDrawInfo& info, u32 num_boun
 
     // Find or create entry
     for (auto& entry : entries) {
-        if (entry.sig == sig) {
+        if (entry == sig) {
             entry.draw_count++;
             entry.last_submit = info.submit_id;
             entry.last_draw = info.draw_id;
