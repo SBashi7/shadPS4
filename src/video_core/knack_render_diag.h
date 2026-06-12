@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -38,7 +39,6 @@ inline constexpr auto ENV_RENDERDOC_LABELS = "KNACK_RENDERDOC_LABELS";
 inline constexpr auto ENV_PIPELINE_BLEND_KEY_DIAG = "KNACK_PIPELINE_BLEND_KEY_DIAG";
 inline constexpr auto ENV_DISABLE_EFFECT_PIPELINE_REUSE = "KNACK_DISABLE_EFFECT_PIPELINE_REUSE";
 inline constexpr auto ENV_TEXTURE_AUDIT = "KNACK_TEXTURE_AUDIT";
-inline constexpr auto ENV_TEXTURE_DUMP = "KNACK_TEXTURE_DUMP";
 inline constexpr auto ENV_TEXTURE_DUMP_MAX = "KNACK_TEXTURE_DUMP_MAX";
 inline constexpr auto ENV_TEXTURE_DUMP_SHADER = "KNACK_TEXTURE_DUMP_SHADER";
 inline constexpr auto ENV_TEXTURE_DUMP_TOP_N = "KNACK_TEXTURE_DUMP_TOP_N";
@@ -54,7 +54,6 @@ struct Flags {
     bool pipeline_blend_key_diag = false;
     bool disable_effect_pipeline_reuse = false;
     bool texture_audit = false;       // Texture audit CSV
-    bool texture_dump = false;        // Dump suspect textures
     u32 texture_dump_max = 20;        // Max dumps per run
     u64 texture_dump_shader = 0;      // Only dump for this specific shader hash (0=top auto)
     u32 texture_dump_top_n = 2;       // Dump top N suspect shaders
