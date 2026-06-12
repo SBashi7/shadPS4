@@ -61,7 +61,7 @@ struct Flags {
     static Flags LoadFromEnv();
 
     [[nodiscard]] bool AnyEffectDiag() const {
-        return effect_diag || texture_dump || pm4_trace_effects || renderdoc_labels;
+        return effect_diag || texture_dump || pm4_trace_effects || renderdoc_labels || texture_audit;
     }
 
 private:
