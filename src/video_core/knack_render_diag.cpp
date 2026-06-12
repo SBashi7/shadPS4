@@ -401,8 +401,8 @@ void EffectSignatureTracker::WriteSummary(const std::string& path) {
 
     // Sort: mismatch first, then by count
     std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
-        if (a.sig.blend_mismatch != b.sig.blend_mismatch) {
-            return a.sig.blend_mismatch > b.sig.blend_mismatch;
+        if (a.blend_mismatch != b.blend_mismatch) {
+            return a.blend_mismatch > b.blend_mismatch;
         }
         return a.draw_count > b.draw_count;
     });
@@ -418,13 +418,13 @@ void EffectSignatureTracker::WriteSummary(const std::string& path) {
     const u32 limit = std::min<u32>(30, (u32)entries.size());
     for (u32 i = 0; i < limit; ++i) {
         const auto& e = entries[i];
-        out << e.draw_count << "\t" << e.sig.blend_mismatch << "\t"
-            << fmt::format("0x{:016x}", e.sig.vs_hash) << "\t"
-            << fmt::format("0x{:016x}", e.sig.fs_hash) << "\t"
-            << fmt::format("0x{:016x}", e.sig.gs_hash) << "\t"
-            << EffectTypeName(e.sig.effect_type) << "\t" << e.sig.fmt_0 << "\t" << e.sig.tile_0
-            << "\t" << e.sig.has_gs << "\t" << e.sig.pipe_blend_en << "\t"
-            << e.sig.first_submit << "\t" << e.sig.first_draw << "\n";
+        out << e.draw_count << "\t" << e.blend_mismatch << "\t"
+            << fmt::format("0x{:016x}", e.vs_hash) << "\t"
+            << fmt::format("0x{:016x}", e.fs_hash) << "\t"
+            << fmt::format("0x{:016x}", e.gs_hash) << "\t"
+            << EffectTypeName(e.effect_type) << "\t" << e.fmt_0 << "\t" << e.tile_0
+            << "\t" << e.has_gs << "\t" << e.pipe_blend_en << "\t"
+            << e.first_submit << "\t" << e.first_draw << "\n";
     }
     out.close();
     LOG_DEBUG(Lib_GnmDriver, "KNACK_EFFECT_SIGNATURE_SUMMARY path={} sigs={} draws={}", path,
