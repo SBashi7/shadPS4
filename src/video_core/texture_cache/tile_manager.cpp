@@ -4,6 +4,7 @@
 #include "core/libraries/kernel/process.h"
 #include <filesystem>
 #include <fstream>
+#include <vector>
 #include <xxhash.h>
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/knack_render_diag.h"
@@ -225,28 +226,32 @@ TileManager::Result TileManager::DetileImage(vk::Buffer in_buffer, u32 in_offset
                  "KNACK_DETILE_DUMP addr=0x{:016x} input_hash=0x{:016x} size={}",
                  info.guest_address, src_hash, dump_size);
 
-        // Write PPM preview: interpret raw tiled bytes as RGBA (will look wrong but proves data)
+        // Write BMP preview: interpret raw tiled bytes as RGBA (scrambled but proves data)
         {
             const u32 preview_w = std::min(info.size.width, 256u);
             const u32 preview_h = std::min(info.size.height, 256u);
-            std::ofstream ppm("dumps/knack_detile/2a8ea0000_input_tiled.ppm");
-            ppm << "P6\n" << preview_w << " " << preview_h << "\n255\n";
+            std::ofstream bmp("dumps/knack_detile/2a8ea0000_input_tiled.bmp", std::ios::binary);
+            const u32 row_size = (preview_w * 3 + 3) & ~3u;
+            const u32 bmp_size = 54 + row_size * preview_h;
+            u8 header[54] = {};
+            header[0] = 'B'; header[1] = 'M';
+            *(u32*)(header+2) = bmp_size; *(u32*)(header+10) = 54;
+            *(u32*)(header+14) = 40; *(s32*)(header+18) = preview_w; *(s32*)(header+22) = -(s32)preview_h;
+            *(u16*)(header+26) = 1; *(u16*)(header+28) = 24;
+            bmp.write(reinterpret_cast<const char*>(header), 54);
+            std::vector<u8> row(row_size, 0);
             for (u32 y = 0; y < preview_h; ++y) {
                 for (u32 x = 0; x < preview_w; ++x) {
                     const u32 offset = (y * info.pitch + x) * 4;
                     if (offset + 4 <= dump_size) {
-                        u8 r = src[offset + 0];
-                        u8 g = src[offset + 1];
-                        u8 b = src[offset + 2];
-                        ppm.write(reinterpret_cast<const char*>(&r), 1);
-                        ppm.write(reinterpret_cast<const char*>(&g), 1);
-                        ppm.write(reinterpret_cast<const char*>(&b), 1);
-                    } else {
-                        ppm.put(0); ppm.put(0); ppm.put(0);
+                        row[x*3+0] = src[offset + 2]; // B
+                        row[x*3+1] = src[offset + 1]; // G
+                        row[x*3+2] = src[offset + 0]; // R
                     }
                 }
+                bmp.write(reinterpret_cast<const char*>(row.data()), row_size);
             }
-            ppm.close();
+            bmp.close();
         }
     }
 
