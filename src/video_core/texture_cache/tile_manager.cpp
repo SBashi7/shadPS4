@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/libraries/kernel/process.h"
+#include <filesystem>
+#include <fstream>
 #include <xxhash.h>
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/knack_render_diag.h"
