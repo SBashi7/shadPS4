@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/libraries/kernel/process.h"
+#include <xxhash.h>
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -251,6 +252,14 @@ TileManager::Result TileManager::DetileImage(vk::Buffer in_buffer, u32 in_offset
 
     const auto dim_x = (info.guest_size / (info.num_bits / 8)) / 64;
     cmdbuf.dispatch(dim_x, 1, 1);
+
+    // KNACK: log lifecycle + CRC for suspect address
+    if (info.guest_address == 0x2a8ea0000 && info.guest_size > 0) {
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_TILE_DETILE_DONE addr=0x{:016x} guest_size={}", info.guest_address,
+                 info.guest_size);
+    }
+
     return {out_buffer, 0};
 }
 
@@ -341,6 +350,11 @@ void TileManager::TileImage(Image& in_image, std::span<vk::BufferImageCopy> buff
 
     const auto dim_x = (info.guest_size / (info.num_bits / 8)) / 64;
     cmdbuf.dispatch(dim_x, 1, 1);
+
+    if (info.guest_address == 0x2a8ea0000 && info.guest_size > 0) {
+        LOG_INFO(Render_Vulkan, "KNACK_TILE_TILE_DONE addr=0x{:016x} guest_size={}",
+                 info.guest_address, info.guest_size);
+    }
 }
 
 } // namespace VideoCore
