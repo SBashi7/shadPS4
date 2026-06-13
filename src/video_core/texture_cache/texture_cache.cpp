@@ -859,7 +859,7 @@ void TextureCache::RegisterImage(ImageId image_id) {
 
     // KNACK frame image tracking
     KnackDiag::FrameImageRecordCreate(
-        static_cast<u32>(image_id), image.info.guest_address, image.info.size.width,
+        image_id.index, image.info.guest_address, image.info.size.width,
         image.info.size.height, static_cast<u32>(image.info.pixel_format),
         image.info.props.is_tiled, image.info.props.is_depth);
 
