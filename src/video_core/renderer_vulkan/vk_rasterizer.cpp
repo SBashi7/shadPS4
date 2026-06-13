@@ -216,6 +216,19 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     if (!BindResources(pipeline)) {
         return;
     }
+
+    // KNACK: force re-detile BEFORE render pass starts (safe: no image bound yet)
+    if (KnackDiag::GetFlags().force_redetile && !bound_images.empty()) {
+        const auto& img0 = texture_cache.GetImage(bound_images[0]);
+        if (img0.info.guest_address == 0x2a8ea0000 &&
+            KnackDiag::WatchShouldForceRedetile(img0.info.guest_address)) {
+            LOG_INFO(Render_Vulkan,
+                     "KNACK_FORCE_REAL_REDETILE_REQUEST addr=0x{:016x} before render pass",
+                     img0.info.guest_address);
+            texture_cache.ForceUploadImage(bound_images[0]);
+        }
+    }
+
     const auto state = BeginRendering(pipeline);
 
     buffer_cache.BindVertexBuffers(*pipeline);
@@ -400,14 +413,6 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                     0, img0.info.guest_address, KnackDiag::g_draw_id.load(),
                     liverpool->regs.vs_program.address, liverpool->regs.ps_program.address);
                 KnackDiag::WatchRecordFinalSample(img0.info.guest_address, KnackDiag::g_draw_id.load());
-
-                // Force re-detile if stale cache detected
-                if (KnackDiag::WatchShouldForceRedetile(img0.info.guest_address)) {
-                    LOG_INFO(Render_Vulkan,
-                             "KNACK_FORCE_REAL_REDETILE addr=0x{:016x} forcing full re-upload",
-                             img0.info.guest_address);
-                    texture_cache.ForceUploadImage(bound_images[0]);
-                }
             }
         }
     } else {
