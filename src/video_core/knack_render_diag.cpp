@@ -50,6 +50,7 @@ Flags Flags::LoadFromEnv() {
             f.texture_dump_max = EnvU32(ENV_TEXTURE_DUMP_MAX, 20);
             f.texture_dump_shader = EnvU64(ENV_TEXTURE_DUMP_SHADER, 0);
             f.texture_dump_top_n = EnvU32(ENV_TEXTURE_DUMP_TOP_N, 2);
+            f.frame_image_force_safe_copy = EnvBool(ENV_FRAME_IMAGE_FORCE_SAFE_COPY, false);
             f.renderdoc_labels = false;
             f.pm4_trace_effects = false;
             f.fs_summary = false;
@@ -562,6 +563,149 @@ const std::string& TextureDumpManager::GetDumpDir() const {
 
 void TextureDumpRecordSuspect(u64 vs, u64 fs, u64 draw, u64 addr, u32 bytes) {
     TextureDumpManager::Instance().RegisterSuspect(vs, fs, draw, addr, bytes);
+}
+
+// ─── Frame Image Producer Tracking ─────────────────────────────────
+
+FrameImageTracker& FrameImageTracker::Instance() {
+    static FrameImageTracker instance;
+    return instance;
+}
+
+void FrameImageTracker::EnsureCsv() {
+    if (!csv.is_open() || !csv_header_written) {
+        std::filesystem::create_directories("dumps");
+        csv.open("dumps/knack_frame_image_chain.csv");
+        csv << "marker,frame,submit,draw,image_id,gpu_addr,write_type,"
+               "vs_hash,fs_hash,vk_format,width,height\n";
+        csv.flush();
+        csv_header_written = true;
+    }
+}
+
+void FrameImageTracker::FlushCsv(const FrameImageWrite& entry, const char* marker) {
+    std::lock_guard lock(mtx);
+    EnsureCsv();
+    csv << marker << "," << entry.frame << "," << entry.submit << "," << entry.draw << ","
+        << entry.image_id << ",0x" << fmt::format("{:016x}", entry.gpu_addr) << ","
+        << static_cast<u32>(entry.type) << ",0x" << fmt::format("{:016x}", entry.vs_hash)
+        << ",0x" << fmt::format("{:016x}", entry.fs_hash) << "," << entry.vk_format_name << ","
+        << entry.width << "," << entry.height << "\n";
+    csv.flush();
+}
+
+void FrameImageTracker::RecordImageCreate(u32 image_id, u64 gpu_addr, u32 width, u32 height,
+                                          u32 vk_fmt, bool is_tiled, bool is_depth) {
+    // Only track fullscreen-ish images
+    if (width < 1280 || height < 720) return;
+
+    FrameImageWrite entry{};
+    entry.frame = g_frame_id.load();
+    entry.submit = 0;
+    entry.draw = 0;
+    entry.image_id = image_id;
+    entry.type = FrameImageWriteType::InitialContents;
+    entry.gpu_addr = gpu_addr;
+    entry.width = width;
+    entry.height = height;
+    // Vulkan format name
+    switch (vk_fmt) {
+    case 37:
+        entry.vk_format_name = "R8G8B8A8_UNORM";
+        break;
+    case 44:
+        entry.vk_format_name = "B8G8R8A8_UNORM";
+        break;
+    default:
+        entry.vk_format_name = "UNKNOWN";
+        break;
+    }
+
+    FlushCsv(entry, "KNACK_FRAME_IMAGE_CREATE");
+
+    if (is_tiled) {
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_FRAME_IMAGE_CREATE id={} addr=0x{:016x} {}x{} fmt={} tiled={} depth={}",
+                 image_id, gpu_addr, width, height, entry.vk_format_name, is_tiled, is_depth);
+    }
+}
+
+void FrameImageTracker::RecordImageWrite(u32 image_id, u64 gpu_addr, FrameImageWriteType type) {
+    FrameImageWrite entry{};
+    entry.frame = g_frame_id.load();
+    entry.submit = g_submit_id.load();
+    entry.draw = g_draw_id.load();
+    entry.image_id = image_id;
+    entry.type = type;
+    entry.gpu_addr = gpu_addr;
+
+    const char* marker = "KNACK_FRAME_IMAGE_LAST_WRITE";
+    switch (type) {
+    case FrameImageWriteType::ColorAttachment:
+        marker = "KNACK_COLOR_FULLSCREEN_WRITE";
+        break;
+    case FrameImageWriteType::StorageImage:
+    case FrameImageWriteType::Compute:
+        marker = "KNACK_COMPUTE_FULLSCREEN_WRITE";
+        break;
+    case FrameImageWriteType::Copy:
+    case FrameImageWriteType::TransferDst:
+        marker = "KNACK_COPY_OR_RESOLVE_FULLSCREEN_WRITE";
+        break;
+    default:
+        break;
+    }
+    FlushCsv(entry, marker);
+}
+
+void FrameImageTracker::RecordFinalCompositeSample(u32 image_id, u64 gpu_addr, u64 draw_id,
+                                                    u64 vs_hash, u64 fs_hash) {
+    FrameImageWrite entry{};
+    entry.frame = g_frame_id.load();
+    entry.submit = g_submit_id.load();
+    entry.draw = draw_id;
+    entry.image_id = image_id;
+    entry.gpu_addr = gpu_addr;
+    entry.vs_hash = vs_hash;
+    entry.fs_hash = fs_hash;
+
+    // Check if we know the last writer
+    auto it = last_writes.find(gpu_addr);
+    if (it != last_writes.end()) {
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_FRAME_IMAGE_SAMPLED_FINAL draw={} addr=0x{:016x} last_writer=[{}] "
+                 "last_frame={} last_submit={}",
+                 draw_id, gpu_addr, static_cast<u32>(it->second.type), it->second.frame,
+                 it->second.submit);
+    } else {
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_FRAME_IMAGE_UNKNOWN_PRODUCER draw={} addr=0x{:016x} "
+                 "image_id={}",
+                 draw_id, gpu_addr, image_id);
+    }
+    FlushCsv(entry, "KNACK_FRAME_IMAGE_SAMPLED_FINAL");
+}
+
+void FrameImageTracker::SetForceSafeCopy(bool val) {
+    g_flags.frame_image_force_safe_copy = val;
+}
+
+void FrameImageRecordCreate(u32 img_id, u64 gpu_addr, u32 w, u32 h, u32 vk_fmt, bool tiled,
+                            bool depth) {
+    if (g_flags.render_diag || g_flags.effect_diag || g_flags.texture_audit) {
+        FrameImageTracker::Instance().RecordImageCreate(img_id, gpu_addr, w, h, vk_fmt, tiled,
+                                                         depth);
+    }
+}
+
+void FrameImageRecordWrite(u32 img_id, u64 gpu_addr, FrameImageWriteType type) {
+    if (g_flags.render_diag || g_flags.effect_diag || g_flags.texture_audit) {
+        FrameImageTracker::Instance().RecordImageWrite(img_id, gpu_addr, type);
+    }
+}
+
+void FrameImageRecordFinalSample(u32 img_id, u64 gpu_addr, u64 draw, u64 vs, u64 fs) {
+    FrameImageTracker::Instance().RecordFinalCompositeSample(img_id, gpu_addr, draw, vs, fs);
 }
 
 } // namespace KnackDiag

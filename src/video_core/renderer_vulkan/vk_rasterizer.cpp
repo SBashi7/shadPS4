@@ -385,6 +385,25 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     if (is_indexed) {
         cmdbuf.drawIndexed(regs.num_indices, regs.num_instances.NumInstances(), 0,
                            s32(vertex_offset), instance_offset);
+
+        // KNACK: detect final composite draw (6 indices, 1 instance)
+        if (regs.num_indices == 6 && regs.num_instances.NumInstances() == 1) {
+            if (!bound_images.empty()) {
+                const auto& img0 = texture_cache.GetImage(bound_images[0]);
+                LOG_INFO(Render_Vulkan,
+                         "KNACK_FINAL_COMPOSITE_DETECTED draw={} num_idx=6 num_inst=1 "
+                         "img0_addr=0x{:016x} img0_size={}x{} img0_fmt={} img0_tiled={} "
+                         "img0_depth={}",
+                         KnackDiag::g_draw_id.load(), img0.info.guest_address,
+                         img0.info.size.width, img0.info.size.height,
+                         static_cast<u32>(img0.info.pixel_format), img0.info.props.is_tiled,
+                         img0.info.props.is_depth);
+                KnackDiag::FrameImageRecordFinalSample(
+                    0, bound_images.empty() ? 0 : texture_cache.GetImage(bound_images[0]).info.guest_address,
+                    KnackDiag::g_draw_id.load(), liverpool->regs.vs_program.address,
+                    liverpool->regs.ps_program.address);
+            }
+        }
     } else {
         cmdbuf.draw(regs.num_indices, regs.num_instances.NumInstances(), vertex_offset,
                     instance_offset);

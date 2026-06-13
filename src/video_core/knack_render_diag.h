@@ -5,11 +5,13 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/types.h"
@@ -42,6 +44,7 @@ inline constexpr auto ENV_TEXTURE_AUDIT = "KNACK_TEXTURE_AUDIT";
 inline constexpr auto ENV_TEXTURE_DUMP_MAX = "KNACK_TEXTURE_DUMP_MAX";
 inline constexpr auto ENV_TEXTURE_DUMP_SHADER = "KNACK_TEXTURE_DUMP_SHADER";
 inline constexpr auto ENV_TEXTURE_DUMP_TOP_N = "KNACK_TEXTURE_DUMP_TOP_N";
+inline constexpr auto ENV_FRAME_IMAGE_FORCE_SAFE_COPY = "KNACK_FRAME_IMAGE_FORCE_SAFE_COPY";
 
 // ─── Feature flags ──────────────────────────────────────────────────
 struct Flags {
@@ -56,7 +59,8 @@ struct Flags {
     bool texture_audit = false;       // Texture audit CSV
     u32 texture_dump_max = 20;        // Max dumps per run
     u64 texture_dump_shader = 0;      // Only dump for this specific shader hash (0=top auto)
-    u32 texture_dump_top_n = 2;       // Dump top N suspect shaders
+    u32 texture_dump_top_n = 2;
+    bool frame_image_force_safe_copy = false;  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
 
     static Flags LoadFromEnv();
 
@@ -253,5 +257,57 @@ private:
 };
 
 void TextureDumpRecordSuspect(u64 vs, u64 fs, u64 draw, u64 addr, u32 bytes);
+
+// ─── Frame Image Producer Tracking ─────────────────────────────────
+
+enum class FrameImageWriteType : u32 {
+    Unknown = 0,
+    ColorAttachment,
+    StorageImage,
+    TransferDst,
+    Copy,
+    Blit,
+    Resolve,
+    Clear,
+    InitialContents,
+};
+
+struct FrameImageWrite {
+    u64 frame;
+    u64 submit;
+    u64 draw;
+    u32 image_id;
+    FrameImageWriteType type;
+    u64 vs_hash;
+    u64 fs_hash;
+    u64 gpu_addr;
+    const char* vk_format_name;
+    u32 width, height;
+};
+
+class FrameImageTracker {
+public:
+    static FrameImageTracker& Instance();
+    void RecordImageCreate(u32 image_id, u64 gpu_addr, u32 width, u32 height, u32 vk_fmt,
+                           bool is_tiled, bool is_depth);
+    void RecordImageWrite(u32 image_id, u64 gpu_addr, FrameImageWriteType type);
+    void RecordFinalCompositeSample(u32 image_id, u64 gpu_addr, u64 draw_id, u64 vs_hash,
+                                    u64 fs_hash);
+    void SetForceSafeCopy(bool val);
+
+private:
+    std::mutex mtx;
+    std::unordered_map<u64, FrameImageWrite> last_writes; // gpu_addr -> last write
+    std::ofstream csv;
+    bool csv_header_written = false;
+    void EnsureCsv();
+    void FlushCsv(const FrameImageWrite& entry, const char* marker);
+};
+
+// Hook functions called from render pipeline
+void FrameImageRecordCreate(u32 img_id, u64 gpu_addr, u32 w, u32 h, u32 vk_fmt, bool tiled,
+                            bool depth);
+void FrameImageRecordWrite(u32 img_id, u64 gpu_addr, FrameImageWriteType type);
+void FrameImageRecordFinalSample(u32 img_id, u64 gpu_addr, u64 draw, u64 vs, u64 fs);
 
 } // namespace KnackDiag

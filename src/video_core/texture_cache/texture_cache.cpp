@@ -9,6 +9,7 @@
 #include "common/scope_exit.h"
 #include "core/memory.h"
 #include "video_core/buffer_cache/buffer_cache.h"
+#include "video_core/knack_render_diag.h"
 #include "video_core/page_manager.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -855,6 +856,13 @@ void TextureCache::RegisterImage(ImageId image_id) {
     image.flags |= ImageFlagBits::Registered;
     total_used_memory += Common::AlignUp(image.info.guest_size, 1024);
     image.lru_id = lru_cache.Insert(image_id, gc_tick);
+
+    // KNACK frame image tracking
+    KnackDiag::FrameImageRecordCreate(
+        static_cast<u32>(image_id), image.info.guest_address, image.info.size.width,
+        image.info.size.height, static_cast<u32>(image.info.pixel_format),
+        image.info.props.is_tiled, image.info.props.is_depth);
+
     ForEachPage(image.info.guest_address, image.info.guest_size,
                 [this, image_id](u64 page) { page_table[page].push_back(image_id); });
 }
