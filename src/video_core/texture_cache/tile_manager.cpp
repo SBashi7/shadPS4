@@ -175,6 +175,11 @@ TileManager::Result TileManager::DetileImage(vk::Buffer in_buffer, u32 in_offset
         return {in_buffer, in_offset};
     }
 
+    LOG_INFO(Render_Vulkan,
+             "KNACK_TILE_DETILE addr=0x{:016x} size={}x{} tile={} array={} fmt={} bpp={} alt={}",
+             info.guest_address, info.size.width, info.size.height, u32(info.tile_mode),
+             u32(info.array_mode), u32(info.pixel_format), info.num_bits, info.alt_tile);
+
     TilingInfo params{};
     params.bank_swizzle = info.bank_swizzle;
     params.num_slices = info.props.is_volume ? info.size.depth : info.resources.layers;
