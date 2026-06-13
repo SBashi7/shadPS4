@@ -399,6 +399,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                 KnackDiag::FrameImageRecordFinalSample(
                     0, img0.info.guest_address, KnackDiag::g_draw_id.load(),
                     liverpool->regs.vs_program.address, liverpool->regs.ps_program.address);
+                KnackDiag::WatchRecordFinalSample(img0.info.guest_address, KnackDiag::g_draw_id.load());
             }
         }
     } else {

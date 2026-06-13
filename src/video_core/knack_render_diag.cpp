@@ -55,6 +55,10 @@ Flags Flags::LoadFromEnv() {
         f.fs_summary = false;
     }
 
+    // Read watch config
+    g_flags.watch_addr = EnvU64(ENV_WATCH_ADDR, 0x2a8ea0000);
+    g_flags.watch_size = EnvU32(ENV_WATCH_SIZE, 0xE10000);
+
     // NEVER write files during startup. FrameImageTracker only uses LOG_INFO.
     return f;
 }
@@ -673,4 +677,69 @@ void FrameImageRecordFinalSample(u32 img_id, u64 gpu_addr, u64 draw, u64 vs, u64
     FrameImageTracker::Instance().RecordFinalCompositeSample(img_id, gpu_addr, draw, vs, fs);
 }
 
-} // namespace KnackDiag
+void WatchRecordDetile(u64 addr) { MemoryWatcher::Instance().RecordDetile(addr); }
+void WatchRecordFinalSample(u64 addr, u64 draw) { MemoryWatcher::Instance().RecordFinalSample(addr, draw); }
+void WatchRecordWrite(u64 addr, const char* source) { MemoryWatcher::Instance().RecordWrite(addr, source); }
+
+// ─── MemoryWatcher ─────────────────────────────────────────────────
+
+MemoryWatcher& MemoryWatcher::Instance() {
+    static MemoryWatcher instance;
+    return instance;
+}
+
+void MemoryWatcher::Init(u64 addr, u32 size) {
+    watch_addr = addr;
+    watch_size = size;
+    LOG_INFO(Render_Vulkan, "KNACK_WATCH_INIT addr=0x{:016x} size=0x{:x}", addr, size);
+}
+
+u64 MemoryWatcher::HashGuestMemory(u64 addr, u32 size) {
+    // Try to hash guest memory via buffer cache
+    // For now, returns 0 (no access to mapped memory in this context)
+    // The actual hashing is done in tile_manager.cpp which has buffer access
+    return 0;
+}
+
+void MemoryWatcher::RecordDetile(u64 addr) {
+    std::lock_guard lock(mtx);
+    if (addr != watch_addr) return;
+
+    last_detile_frame = g_frame_id.load();
+    LOG_INFO(Render_Vulkan, "KNACK_WATCH_DETILE addr=0x{:016x} frame={}", addr, last_detile_frame);
+}
+
+void MemoryWatcher::RecordFinalSample(u64 addr, u64 draw_id) {
+    std::lock_guard lock(mtx);
+    if (addr != watch_addr) return;
+
+    // Track unique addresses for final composite
+    final_sample_addrs[addr]++;
+
+    u64 current_frame = g_frame_id.load();
+    u64 frames_since_detile = (current_frame > last_detile_frame) ? current_frame - last_detile_frame : 0;
+
+    LOG_INFO(Render_Vulkan,
+             "KNACK_WATCH_FINAL_SAMPLE addr=0x{:016x} draw={} frame={} "
+             "detile_frame={} frames_since_detile={} hash_changed=unknown "
+             "sample_count={}",
+             addr, draw_id, current_frame, last_detile_frame, frames_since_detile,
+             final_sample_addrs[addr]);
+
+    // Check if the address changed between final composite frames
+    if (final_sample_addrs.size() > 1) {
+        LOG_INFO(Render_Vulkan, "KNACK_FINAL_COMPOSITE_ADDR_SUMMARY unique_addrs={}",
+                 final_sample_addrs.size());
+        for (const auto& [a, count] : final_sample_addrs) {
+            LOG_INFO(Render_Vulkan, "  addr=0x{:016x} count={}", a, count);
+        }
+    }
+}
+
+void MemoryWatcher::RecordWrite(u64 addr, const char* source) {
+    std::lock_guard lock(mtx);
+    if (addr < watch_addr || addr >= watch_addr + watch_size) return;
+
+    LOG_INFO(Render_Vulkan, "KNACK_WATCH_WRITE addr=0x{:016x} source={} frame={}",
+             addr, source, g_frame_id.load());
+}

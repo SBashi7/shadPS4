@@ -45,6 +45,8 @@ inline constexpr auto ENV_TEXTURE_DUMP_MAX = "KNACK_TEXTURE_DUMP_MAX";
 inline constexpr auto ENV_TEXTURE_DUMP_SHADER = "KNACK_TEXTURE_DUMP_SHADER";
 inline constexpr auto ENV_TEXTURE_DUMP_TOP_N = "KNACK_TEXTURE_DUMP_TOP_N";
 inline constexpr auto ENV_FRAME_IMAGE_FORCE_SAFE_COPY = "KNACK_FRAME_IMAGE_FORCE_SAFE_COPY";
+inline constexpr auto ENV_WATCH_ADDR = "KNACK_WATCH_ADDR";
+inline constexpr auto ENV_WATCH_SIZE = "KNACK_WATCH_SIZE";
 
 // ─── Feature flags ──────────────────────────────────────────────────
 struct Flags {
@@ -60,7 +62,9 @@ struct Flags {
     u32 texture_dump_max = 20;        // Max dumps per run
     u64 texture_dump_shader = 0;      // Only dump for this specific shader hash (0=top auto)
     u32 texture_dump_top_n = 2;
-    bool frame_image_force_safe_copy = false;  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
+    bool frame_image_force_safe_copy = false;
+    u64 watch_addr = 0x2a8ea0000;    // Default: watch the KNACK particle RT
+    u32 watch_size = 0xE10000;       // Default: 2560*1440*4 ≈ 14MB  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
 
     static Flags LoadFromEnv();
 
@@ -309,5 +313,29 @@ void FrameImageRecordCreate(u32 img_id, u64 gpu_addr, u32 w, u32 h, u32 vk_fmt, 
                             bool depth);
 void FrameImageRecordWrite(u32 img_id, u64 gpu_addr, FrameImageWriteType type);
 void FrameImageRecordFinalSample(u32 img_id, u64 gpu_addr, u64 draw, u64 vs, u64 fs);
+
+// ─── Memory Range Watch ────────────────────────────────────────────
+
+class MemoryWatcher {
+public:
+    static MemoryWatcher& Instance();
+    void Init(u64 addr, u32 size);
+    u64 HashGuestMemory(u64 addr, u32 size);
+    void RecordDetile(u64 addr);
+    void RecordFinalSample(u64 addr, u64 draw_id);
+    void RecordWrite(u64 addr, const char* source);
+
+private:
+    std::mutex mtx;
+    u64 watch_addr = 0;
+    u32 watch_size = 0;
+    u64 last_detile_hash = 0;
+    u64 last_detile_frame = 0;
+    std::map<u64, u32> final_sample_addrs; // addr -> count
+};
+
+void WatchRecordDetile(u64 addr);
+void WatchRecordFinalSample(u64 addr, u64 draw);
+void WatchRecordWrite(u64 addr, const char* source);
 
 } // namespace KnackDiag

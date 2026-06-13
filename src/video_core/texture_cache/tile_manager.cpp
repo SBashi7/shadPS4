@@ -4,6 +4,7 @@
 #include "core/libraries/kernel/process.h"
 #include <xxhash.h>
 #include "video_core/buffer_cache/buffer.h"
+#include "video_core/knack_render_diag.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
@@ -180,6 +181,8 @@ TileManager::Result TileManager::DetileImage(vk::Buffer in_buffer, u32 in_offset
              "KNACK_TILE_DETILE addr=0x{:016x} size={}x{} tile={} array={} fmt={} bpp={} alt={}",
              info.guest_address, info.size.width, info.size.height, u32(info.tile_mode),
              u32(info.array_mode), u32(info.pixel_format), info.num_bits, info.alt_tile);
+
+    KnackDiag::WatchRecordDetile(info.guest_address);
 
     TilingInfo params{};
     params.bank_swizzle = info.bank_swizzle;
