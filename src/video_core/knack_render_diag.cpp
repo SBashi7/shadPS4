@@ -58,7 +58,7 @@ Flags Flags::LoadFromEnv() {
     // Read watch config
     g_flags.watch_addr = EnvU64(ENV_WATCH_ADDR, 0x2a8ea0000);
     g_flags.watch_size = EnvU32(ENV_WATCH_SIZE, 0xE10000);
-    g_flags.force_redetile = EnvBool(ENV_FORCE_REDETILE, false);
+    g_flags.force_redetile = true; // HARDCODED for test: force re-detile every final composite
     MemoryWatcher::Instance().Init(g_flags.watch_addr, g_flags.watch_size);
 
     // KNACK TEXTURE AUDIT: hardcoded ON
