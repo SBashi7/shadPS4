@@ -390,7 +390,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         if (regs.num_indices == 6 && regs.num_instances.NumInstances() == 1) {
             if (!bound_images.empty()) {
                 const auto& img0 = texture_cache.GetImage(bound_images[0]);
-                LOG_INFO(Render_Vulkan,
+                LOG_DEBUG(Render_Vulkan,
                          "KNACK_FINAL_COMPOSITE_DETECTED draw={} num_idx=6 num_inst=1 "
                          "img0_addr=0x{:016x} img0_size={}x{} img0_fmt={} img0_tiled={}",
                          KnackDiag::g_draw_id.load(), img0.info.guest_address,
