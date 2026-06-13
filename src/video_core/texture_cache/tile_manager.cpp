@@ -184,6 +184,70 @@ TileManager::Result TileManager::DetileImage(vk::Buffer in_buffer, u32 in_offset
 
     KnackDiag::WatchRecordDetile(info.guest_address);
 
+    // KNACK DETILE DUMP: save raw tiled input for addr 0x2a8ea0000
+    if (info.guest_address == 0x2a8ea0000 && info.guest_size > 0) {
+        std::filesystem::create_directories("dumps/knack_detile");
+        const u8* src = reinterpret_cast<const u8*>(info.guest_address);
+        const u32 dump_size = std::min(info.guest_size, 16u * 1024u * 1024u);
+        u64 src_hash = XXH3_64bits(src, dump_size);
+
+        // Dump raw tiled input
+        {
+            std::ofstream f("dumps/knack_detile/2a8ea0000_input_tiled.raw", std::ios::binary);
+            f.write(reinterpret_cast<const char*>(src), dump_size);
+            f.close();
+        }
+
+        // Write manifest
+        {
+            std::ofstream m("dumps/knack_detile/2a8ea0000_manifest.json");
+            m << "{\n";
+            m << "  \"addr\": \"0x" << fmt::format("{:016x}", info.guest_address) << "\",\n";
+            m << "  \"width\": " << info.size.width << ",\n";
+            m << "  \"height\": " << info.size.height << ",\n";
+            m << "  \"pitch\": " << info.pitch << ",\n";
+            m << "  \"tile_mode\": " << u32(info.tile_mode) << ",\n";
+            m << "  \"array_mode\": " << u32(info.array_mode) << ",\n";
+            m << "  \"format\": " << u32(info.pixel_format) << ",\n";
+            m << "  \"bpp\": " << info.num_bits << ",\n";
+            m << "  \"guest_size\": " << info.guest_size << ",\n";
+            m << "  \"dump_size\": " << dump_size << ",\n";
+            m << "  \"source_hash\": \"0x" << fmt::format("{:016x}", src_hash) << "\",\n";
+            m << "  \"output_hash\": \"unavailable\",\n";
+            m << "  \"stage\": \"before_detile_input_only\"\n";
+            m << "}\n";
+            m.close();
+        }
+
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_DETILE_DUMP addr=0x{:016x} input_hash=0x{:016x} size={}",
+                 info.guest_address, src_hash, dump_size);
+
+        // Write PPM preview: interpret raw tiled bytes as RGBA (will look wrong but proves data)
+        {
+            const u32 preview_w = std::min(info.size.width, 256u);
+            const u32 preview_h = std::min(info.size.height, 256u);
+            std::ofstream ppm("dumps/knack_detile/2a8ea0000_input_tiled.ppm");
+            ppm << "P6\n" << preview_w << " " << preview_h << "\n255\n";
+            for (u32 y = 0; y < preview_h; ++y) {
+                for (u32 x = 0; x < preview_w; ++x) {
+                    const u32 offset = (y * info.pitch + x) * 4;
+                    if (offset + 4 <= dump_size) {
+                        u8 r = src[offset + 0];
+                        u8 g = src[offset + 1];
+                        u8 b = src[offset + 2];
+                        ppm.write(reinterpret_cast<const char*>(&r), 1);
+                        ppm.write(reinterpret_cast<const char*>(&g), 1);
+                        ppm.write(reinterpret_cast<const char*>(&b), 1);
+                    } else {
+                        ppm.put(0); ppm.put(0); ppm.put(0);
+                    }
+                }
+            }
+            ppm.close();
+        }
+    }
+
     TilingInfo params{};
     params.bank_swizzle = info.bank_swizzle;
     params.num_slices = info.props.is_volume ? info.size.depth : info.resources.layers;
