@@ -853,6 +853,8 @@ void TextureCache::InvalidateImage(ImageId image_id) {
     UnregisterImage(image_id);
     RegisterImage(image_id);
 }
+
+void TextureCache::RegisterImage(ImageId image_id) {
     Image& image = slot_images[image_id];
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
                "Trying to register an already registered image");
