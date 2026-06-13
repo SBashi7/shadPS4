@@ -58,12 +58,14 @@ Flags Flags::LoadFromEnv() {
     // Read watch config
     g_flags.watch_addr = EnvU64(ENV_WATCH_ADDR, 0x2a8ea0000);
     g_flags.watch_size = EnvU32(ENV_WATCH_SIZE, 0xE10000);
-    f.force_redetile = true; // HARDCODED for test: force re-detile every final composite
+    f.force_redetile = false; // DISABLED: ForceUploadImage mid-frame breaks rendering
     MemoryWatcher::Instance().Init(g_flags.watch_addr, g_flags.watch_size);
 
-    // KNACK TEXTURE AUDIT: hardcoded ON
-    g_flags.texture_audit = true;
-    g_flags.effect_diag = true;
+    // KNACK TEXTURE AUDIT: OFF by default
+    f.texture_audit = EnvBool(ENV_TEXTURE_AUDIT, false);
+    if (f.texture_audit) {
+        f.effect_diag = true;
+    }
 
     // NEVER write files during startup. FrameImageTracker only uses LOG_INFO.
     return f;
