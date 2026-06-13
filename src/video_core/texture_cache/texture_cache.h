@@ -81,6 +81,9 @@ public:
 
 public:
     TextureCache(const Vulkan::Instance& instance, Vulkan::Scheduler& scheduler,
+
+    // KNACK: force re-detile by unregister+register
+    void InvalidateImage(ImageId image_id);
                  AmdGpu::Liverpool* liverpool, BufferCache& buffer_cache,
                  PageManager& page_manager);
     ~TextureCache();

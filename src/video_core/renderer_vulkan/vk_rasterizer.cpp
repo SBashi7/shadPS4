@@ -404,11 +404,9 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                 // Force re-detile if stale cache detected
                 if (KnackDiag::WatchShouldForceRedetile(img0.info.guest_address)) {
                     LOG_INFO(Render_Vulkan,
-                             "KNACK_FORCE_REDETILE addr=0x{:016x} detile_count= forcing refresh",
+                             "KNACK_FORCE_REDETILE addr=0x{:016x} forcing refresh",
                              img0.info.guest_address);
-                    // Unregister and re-register to force fresh upload + detile
-                    texture_cache.UnregisterImage(bound_images[0]);
-                    texture_cache.RegisterImage(bound_images[0]);
+                    texture_cache.InvalidateImage(bound_images[0]);
                 }
             }
         }
