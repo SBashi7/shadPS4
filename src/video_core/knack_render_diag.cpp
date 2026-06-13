@@ -58,6 +58,7 @@ Flags Flags::LoadFromEnv() {
     // Read watch config
     g_flags.watch_addr = EnvU64(ENV_WATCH_ADDR, 0x2a8ea0000);
     g_flags.watch_size = EnvU32(ENV_WATCH_SIZE, 0xE10000);
+    g_flags.force_redetile = EnvBool(ENV_FORCE_REDETILE, false);
     MemoryWatcher::Instance().Init(g_flags.watch_addr, g_flags.watch_size);
 
     // KNACK TEXTURE AUDIT: hardcoded ON
@@ -710,35 +711,27 @@ void MemoryWatcher::RecordDetile(u64 addr) {
     std::lock_guard lock(mtx);
     if (addr != watch_addr) return;
 
+    detile_count++;
     last_detile_frame = g_frame_id.load();
-    LOG_INFO(Render_Vulkan, "KNACK_WATCH_DETILE addr=0x{:016x} frame={}", addr, last_detile_frame);
+    LOG_INFO(Render_Vulkan,
+             "KNACK_WATCH_DETILE addr=0x{:016x} detile_count={} final_sample_count={} frame={}",
+             addr, detile_count, final_sample_count, last_detile_frame);
 }
 
 void MemoryWatcher::RecordFinalSample(u64 addr, u64 draw_id) {
     std::lock_guard lock(mtx);
     if (addr != watch_addr) return;
 
-    // Track unique addresses for final composite
+    final_sample_count++;
     final_sample_addrs[addr]++;
 
+    bool is_stale = (final_sample_count > detile_count);
     u64 current_frame = g_frame_id.load();
-    u64 frames_since_detile = (current_frame > last_detile_frame) ? current_frame - last_detile_frame : 0;
 
     LOG_INFO(Render_Vulkan,
-             "KNACK_WATCH_FINAL_SAMPLE addr=0x{:016x} draw={} frame={} "
-             "detile_frame={} frames_since_detile={} hash_changed=unknown "
-             "sample_count={}",
-             addr, draw_id, current_frame, last_detile_frame, frames_since_detile,
-             final_sample_addrs[addr]);
-
-    // Check if the address changed between final composite frames
-    if (final_sample_addrs.size() > 1) {
-        LOG_INFO(Render_Vulkan, "KNACK_FINAL_COMPOSITE_ADDR_SUMMARY unique_addrs={}",
-                 final_sample_addrs.size());
-        for (const auto& [a, count] : final_sample_addrs) {
-            LOG_INFO(Render_Vulkan, "  addr=0x{:016x} count={}", a, count);
-        }
-    }
+             "KNACK_WATCH_FINAL_SAMPLE addr=0x{:016x} detile_count={} final_sample_count={} "
+             "stale_cache={} force_redetile={}",
+             addr, detile_count, final_sample_count, is_stale, g_flags.force_redetile);
 }
 
 void MemoryWatcher::RecordWrite(u64 addr, const char* source) {
@@ -747,6 +740,12 @@ void MemoryWatcher::RecordWrite(u64 addr, const char* source) {
 
     LOG_INFO(Render_Vulkan, "KNACK_WATCH_WRITE addr=0x{:016x} source={} frame={}",
              addr, source, g_frame_id.load());
+}
+
+bool WatchShouldForceRedetile(u64 addr) {
+    if (!g_flags.force_redetile) return false;
+    auto& w = MemoryWatcher::Instance();
+    return (addr == g_flags.watch_addr) && (w.GetFinalSampleCount() > w.GetDetileCount());
 }
 
 } // namespace KnackDiag

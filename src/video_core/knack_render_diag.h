@@ -47,6 +47,7 @@ inline constexpr auto ENV_TEXTURE_DUMP_TOP_N = "KNACK_TEXTURE_DUMP_TOP_N";
 inline constexpr auto ENV_FRAME_IMAGE_FORCE_SAFE_COPY = "KNACK_FRAME_IMAGE_FORCE_SAFE_COPY";
 inline constexpr auto ENV_WATCH_ADDR = "KNACK_WATCH_ADDR";
 inline constexpr auto ENV_WATCH_SIZE = "KNACK_WATCH_SIZE";
+inline constexpr auto ENV_FORCE_REDETILE = "KNACK_FORCE_REDETILE_BEFORE_FINAL";
 
 // ─── Feature flags ──────────────────────────────────────────────────
 struct Flags {
@@ -63,8 +64,9 @@ struct Flags {
     u64 texture_dump_shader = 0;      // Only dump for this specific shader hash (0=top auto)
     u32 texture_dump_top_n = 2;
     bool frame_image_force_safe_copy = false;
-    u64 watch_addr = 0x2a8ea0000;    // Default: watch the KNACK particle RT
-    u32 watch_size = 0xE10000;       // Default: 2560*1440*4 ≈ 14MB  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
+    u64 watch_addr = 0x2a8ea0000;
+    u32 watch_size = 0xE10000;
+    bool force_redetile = false;     // Force re-detile before final composite  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
 
     static Flags LoadFromEnv();
 
@@ -331,11 +333,17 @@ private:
     u32 watch_size = 0;
     u64 last_detile_hash = 0;
     u64 last_detile_frame = 0;
-    std::map<u64, u32> final_sample_addrs; // addr -> count
+    u32 detile_count = 0;
+    u32 final_sample_count = 0;
+    std::map<u64, u32> final_sample_addrs;
+public:
+    u32 GetDetileCount() const { return detile_count; }
+    u32 GetFinalSampleCount() const { return final_sample_count; }
 };
 
 void WatchRecordDetile(u64 addr);
 void WatchRecordFinalSample(u64 addr, u64 draw);
 void WatchRecordWrite(u64 addr, const char* source);
+bool WatchShouldForceRedetile(u64 addr);
 
 } // namespace KnackDiag
