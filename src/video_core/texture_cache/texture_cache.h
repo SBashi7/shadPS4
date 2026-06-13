@@ -88,6 +88,9 @@ public:
     // KNACK: force re-detile by unregister+register
     void InvalidateImage(ImageId image_id);
 
+    // KNACK: force full re-upload from guest memory (triggers DetileImage for tiled images)
+    void ForceUploadImage(ImageId image_id);
+
     TileManager& GetTileManager() noexcept {
         return tile_manager;
     }

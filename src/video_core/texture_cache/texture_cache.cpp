@@ -854,6 +854,17 @@ void TextureCache::InvalidateImage(ImageId image_id) {
     RegisterImage(image_id);
 }
 
+void TextureCache::ForceUploadImage(ImageId image_id) {
+    Image& image = slot_images[image_id];
+    // Reset hashes to force the upload path to re-read guest memory + detile
+    image.hash = 0;
+    std::memset(image.mip_hashes.data(), 0, image.mip_hashes.size() * sizeof(u64));
+    // Mark as CPU dirty to trigger re-upload
+    image.flags |= ImageFlagBits::CpuDirty;
+    LOG_INFO(Render_Vulkan, "KNACK_FORCE_REAL_REDETILE_REQUEST image_id={} addr=0x{:016x} hash=0",
+             image_id.index, image.info.guest_address);
+}
+
 void TextureCache::RegisterImage(ImageId image_id) {
     Image& image = slot_images[image_id];
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
