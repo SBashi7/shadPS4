@@ -645,7 +645,6 @@ void FrameImageTracker::RecordImageWrite(u32 image_id, u64 gpu_addr, FrameImageW
         marker = "KNACK_COLOR_FULLSCREEN_WRITE";
         break;
     case FrameImageWriteType::StorageImage:
-    case FrameImageWriteType::Compute:
         marker = "KNACK_COMPUTE_FULLSCREEN_WRITE";
         break;
     case FrameImageWriteType::Copy:
