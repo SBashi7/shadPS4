@@ -704,6 +704,7 @@ void FrameImageRecordWrite(u32 img_id, u64 gpu_addr, FrameImageWriteType type) {
 }
 
 void FrameImageRecordFinalSample(u32 img_id, u64 gpu_addr, u64 draw, u64 vs, u64 fs) {
+    if (!g_flags.render_diag && !g_flags.effect_diag && !g_flags.texture_audit) return;
     FrameImageTracker::Instance().RecordFinalCompositeSample(img_id, gpu_addr, draw, vs, fs);
 }
 
