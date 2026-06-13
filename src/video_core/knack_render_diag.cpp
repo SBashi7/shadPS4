@@ -481,22 +481,17 @@ void TextureAuditWriter::RecordEffectDraw(const TexAuditEntry& entry) {
                "tex_count,img_id,gpu_addr,width,height,depth,pitch,mips,data_fmt,num_fmt,vk_fmt,"
                "srgb,tile,array,tiled,usage,fullscreen_rt\n";
         csv.close();
+        last_flush = std::chrono::steady_clock::now();
     }
 
-    // Write immediately (no buffering, survives Alt+F4 kill)
-    std::ofstream csv("dumps/knack_texture_audit.csv", std::ios::app);
-    csv << entry.frame << "," << entry.draw << "," << entry.submit << "," << entry.effect_category
-        << "," << fmt::format("0x{:016x}", entry.vs_hash) << ","
-        << fmt::format("0x{:016x}", entry.fs_hash) << ","
-        << fmt::format("0x{:016x}", entry.cs_hash) << "," << entry.pipeline_id << ","
-        << entry.rt_fmt << "," << entry.rt_w << "," << entry.rt_h << "," << entry.tex_count << ","
-        << entry.img_id << "," << fmt::format("0x{:016x}", entry.gpu_addr) << "," << entry.width
-        << "," << entry.height << "," << entry.depth << "," << entry.pitch << "," << entry.mips
-        << "," << entry.data_fmt << "," << entry.num_fmt << "," << entry.vk_fmt << ","
-        << entry.is_srgb << "," << entry.tile_mode << "," << entry.array_mode << ","
-        << entry.is_tiled << "," << fmt::format("0x{:x}", entry.usage_flags) << ","
-        << entry.is_fullscreen_rt << "\n";
-    csv.close();
+    entries.push_back(entry);
+
+    // Flush every 100 entries or every 2 seconds (frequent enough for Alt+F4)
+    const auto now = std::chrono::steady_clock::now();
+    if (entries.size() >= 100 ||
+        std::chrono::duration_cast<std::chrono::seconds>(now - last_flush).count() >= 2) {
+        Flush();
+    }
 }
 
 void TextureAuditWriter::Flush() {

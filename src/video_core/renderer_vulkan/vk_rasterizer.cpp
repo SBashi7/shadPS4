@@ -290,8 +290,8 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                     te.draw = did;
                     te.submit = KnackDiag::g_submit_id.load();
                     te.effect_category = "PARTICLE_TRAIL";
-                    te.vs_hash = key.stage_hashes[0];
-                    te.fs_hash = key.stage_hashes[1];
+                    te.vs_hash = liverpool->regs.vs_program.address;
+                    te.fs_hash = liverpool->regs.ps_program.address;
                     te.cs_hash = 0;
                     te.pipeline_id = 0;
                     te.tex_count = (u32)bound_images.size();
