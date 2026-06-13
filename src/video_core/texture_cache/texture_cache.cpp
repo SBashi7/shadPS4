@@ -856,13 +856,6 @@ void TextureCache::RegisterImage(ImageId image_id) {
     image.flags |= ImageFlagBits::Registered;
     total_used_memory += Common::AlignUp(image.info.guest_size, 1024);
     image.lru_id = lru_cache.Insert(image_id, gc_tick);
-
-    // KNACK frame image tracking
-    KnackDiag::FrameImageRecordCreate(
-        image_id.index, image.info.guest_address, image.info.size.width,
-        image.info.size.height, static_cast<u32>(image.info.pixel_format),
-        image.info.props.is_tiled, image.info.props.is_depth);
-
     ForEachPage(image.info.guest_address, image.info.guest_size,
                 [this, image_id](u64 page) { page_table[page].push_back(image_id); });
 }
