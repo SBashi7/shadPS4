@@ -743,3 +743,5 @@ void MemoryWatcher::RecordWrite(u64 addr, const char* source) {
     LOG_INFO(Render_Vulkan, "KNACK_WATCH_WRITE addr=0x{:016x} source={} frame={}",
              addr, source, g_frame_id.load());
 }
+
+} // namespace KnackDiag
