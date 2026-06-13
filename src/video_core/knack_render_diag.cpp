@@ -44,17 +44,18 @@ Flags Flags::LoadFromEnv() {
         }
         // KNACK TEXTURE AUDIT: OFF by default. Set KNACK_TEXTURE_AUDIT=1 to enable.
         f.texture_audit = EnvBool(ENV_TEXTURE_AUDIT, false);
-        if (f.texture_audit) {
-            f.effect_diag = true;
-            f.texture_dump = EnvBool(ENV_TEXTURE_DUMP, false);
-            f.texture_dump_max = EnvU32(ENV_TEXTURE_DUMP_MAX, 20);
-            f.texture_dump_shader = EnvU64(ENV_TEXTURE_DUMP_SHADER, 0);
-            f.texture_dump_top_n = EnvU32(ENV_TEXTURE_DUMP_TOP_N, 2);
-            f.frame_image_force_safe_copy = EnvBool(ENV_FRAME_IMAGE_FORCE_SAFE_COPY, false);
-            f.renderdoc_labels = false;
-            f.pm4_trace_effects = false;
-            f.fs_summary = false;
-        }
+    if (f.texture_audit) {
+        f.effect_diag = true;
+        f.texture_dump = false;
+        f.texture_dump_max = 20;
+        f.texture_dump_shader = 0;
+        f.texture_dump_top_n = 2;
+        f.renderdoc_labels = false;
+        f.pm4_trace_effects = false;
+        f.fs_summary = false;
+    }
+
+    // NEVER write files during startup. FrameImageTracker only uses LOG_INFO.
     return f;
 }
 
@@ -472,29 +473,7 @@ TextureAuditWriter& TextureAuditWriter::Instance() {
 }
 
 void TextureAuditWriter::RecordEffectDraw(const TexAuditEntry& entry) {
-    std::lock_guard lock(mtx);
-
-    // Write header on first call
-    static bool header_written = false;
-    if (!header_written) {
-        header_written = true;
-        std::filesystem::create_directories("dumps");
-        std::ofstream csv("dumps/knack_texture_audit.csv");
-        csv << "frame,draw,submit,category,vs_hash,fs_hash,cs_hash,pipe_id,rt_fmt,rt_w,rt_h,"
-               "tex_count,img_id,gpu_addr,width,height,depth,pitch,mips,data_fmt,num_fmt,vk_fmt,"
-               "srgb,tile,array,tiled,usage,fullscreen_rt\n";
-        csv.close();
-        last_flush = std::chrono::steady_clock::now();
-    }
-
-    entries.push_back(entry);
-
-    // Flush every 100 entries or every 2 seconds (frequent enough for Alt+F4)
-    const auto now = std::chrono::steady_clock::now();
-    if (entries.size() >= 100 ||
-        std::chrono::duration_cast<std::chrono::seconds>(now - last_flush).count() >= 2) {
-        Flush();
-    }
+    // No file I/O — LOG_INFO only via the existing KNACK_EFFECT_DRAW logs
 }
 
 void TextureAuditWriter::Flush() {
@@ -573,25 +552,11 @@ FrameImageTracker& FrameImageTracker::Instance() {
 }
 
 void FrameImageTracker::EnsureCsv() {
-    if (!csv.is_open() || !csv_header_written) {
-        std::filesystem::create_directories("dumps");
-        csv.open("dumps/knack_frame_image_chain.csv");
-        csv << "marker,frame,submit,draw,image_id,gpu_addr,write_type,"
-               "vs_hash,fs_hash,vk_format,width,height\n";
-        csv.flush();
-        csv_header_written = true;
-    }
+    // No file I/O during startup — everything via LOG_INFO only
 }
 
 void FrameImageTracker::FlushCsv(const FrameImageWrite& entry, const char* marker) {
-    std::lock_guard lock(mtx);
-    EnsureCsv();
-    csv << marker << "," << entry.frame << "," << entry.submit << "," << entry.draw << ","
-        << entry.image_id << ",0x" << fmt::format("{:016x}", entry.gpu_addr) << ","
-        << static_cast<u32>(entry.type) << ",0x" << fmt::format("{:016x}", entry.vs_hash)
-        << ",0x" << fmt::format("{:016x}", entry.fs_hash) << "," << entry.vk_format_name << ","
-        << entry.width << "," << entry.height << "\n";
-    csv.flush();
+    // LOG_INFO only, no file I/O
 }
 
 void FrameImageTracker::RecordImageCreate(u32 image_id, u64 gpu_addr, u32 width, u32 height,
