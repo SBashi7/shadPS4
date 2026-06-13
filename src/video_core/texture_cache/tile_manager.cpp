@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "core/libraries/kernel/process.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -117,18 +118,25 @@ vk::Pipeline TileManager::GetTilingPipeline(const ImageInfo& info, bool is_tiler
     if (AmdGpu::IsMacroTiled(info.array_mode)) {
         const auto macro_tile_mode =
             AmdGpu::CalculateMacrotileMode(info.tile_mode, info.num_bits, info.num_samples);
-        const u32 num_banks = AmdGpu::GetNumBanks(macro_tile_mode);
-        defines.emplace_back(
-            fmt::format("PIPE_CONFIG={}", u32(AmdGpu::GetPipeConfig(info.tile_mode))));
-        defines.emplace_back(fmt::format("BANK_WIDTH={}", AmdGpu::GetBankWidth(macro_tile_mode)));
-        defines.emplace_back(fmt::format("BANK_HEIGHT={}", AmdGpu::GetBankHeight(macro_tile_mode)));
+        const bool use_alt = Libraries::Kernel::sceKernelIsNeoMode() && info.alt_tile;
+        const u32 pipe_config = use_alt ? u32(AmdGpu::GetAltPipeConfig(info.tile_mode))
+                                        : u32(AmdGpu::GetPipeConfig(info.tile_mode));
+        const u32 bank_width = AmdGpu::GetBankWidth(macro_tile_mode);
+        const u32 bank_height = use_alt ? AmdGpu::GetAltBankHeight(macro_tile_mode)
+                                        : AmdGpu::GetBankHeight(macro_tile_mode);
+        const u32 num_banks =
+            use_alt ? AmdGpu::GetAltNumBanks(macro_tile_mode) : AmdGpu::GetNumBanks(macro_tile_mode);
+        const u32 macro_tile_aspect = use_alt ? AmdGpu::GetAltMacrotileAspect(macro_tile_mode)
+                                              : AmdGpu::GetMacrotileAspect(macro_tile_mode);
+        defines.emplace_back(fmt::format("PIPE_CONFIG={}", pipe_config));
+        defines.emplace_back(fmt::format("BANK_WIDTH={}", bank_width));
+        defines.emplace_back(fmt::format("BANK_HEIGHT={}", bank_height));
         defines.emplace_back(fmt::format("NUM_BANKS={}", num_banks));
         defines.emplace_back(fmt::format("NUM_BANK_BITS={}", std::bit_width(num_banks) - 1));
         defines.emplace_back(fmt::format(
             "TILE_SPLIT_BYTES={}", AmdGpu::CalculateTileSplit(info.tile_mode, info.array_mode,
-                                                              micro_tile_mode, info.num_bits)));
-        defines.emplace_back(
-            fmt::format("MACRO_TILE_ASPECT={}", AmdGpu::GetMacrotileAspect(macro_tile_mode)));
+                                                               micro_tile_mode, info.num_bits)));
+        defines.emplace_back(fmt::format("MACRO_TILE_ASPECT={}", macro_tile_aspect));
     }
     if (is_tiler) {
         defines.emplace_back(fmt::format("IS_TILER=1"));
