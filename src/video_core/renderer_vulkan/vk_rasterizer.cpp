@@ -276,29 +276,47 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
             std::filesystem::create_directories(dir);
             for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
                 const auto& img = texture_cache.GetImage(bound_images[i]);
-                const u32 dump_w = std::min(img.info.size.width, 256u);
-                const u32 dump_h = std::min(img.info.size.height, 256u);
-                std::string path = fmt::format("{}/tex{:02d}_{}x{}.bmp", dir, (u32)i, dump_w, dump_h);
-                std::ofstream bmp(path, std::ios::binary);
-                const u32 row_size = (dump_w * 3 + 3) & ~3u;
-                u8 hdr[54] = {};
-                hdr[0]='B';hdr[1]='M';*(u32*)(hdr+2)=54+row_size*dump_h;*(u32*)(hdr+10)=54;
-                *(u32*)(hdr+14)=40;*(s32*)(hdr+18)=dump_w;*(s32*)(hdr+22)=-(s32)dump_h;
-                *(u16*)(hdr+26)=1;*(u16*)(hdr+28)=24;
-                bmp.write((char*)hdr,54);
-                std::vector<u8> row(row_size);
+                const u32 fmt = static_cast<u32>(img.info.pixel_format);
+
+                // Raw bytes dump (always)
+                std::string raw_path = fmt::format("{}/tex{:02d}_raw.bin", dir, (u32)i);
+                std::ofstream raw(raw_path, std::ios::binary);
+                const u32 raw_size = std::min(img.info.guest_size, 256u * 1024u);
                 const u8* src = reinterpret_cast<const u8*>(img.info.guest_address);
-                for (u32 y=0;y<dump_h;++y){
-                    std::memset(row.data(), 0, row_size);
-                    for(u32 x=0;x<dump_w;++x){
-                        u32 off=(y*img.info.pitch+x)*4;
-                        if (off+4 <= img.info.guest_size) {
-                            row[x*3+0]=src[off+2];row[x*3+1]=src[off+1];row[x*3+2]=src[off+0];
+                raw.write(reinterpret_cast<const char*>(src), raw_size);
+                raw.close();
+
+                // BMP preview: only for RGBA8-like formats (skip packed/snorm/compressed)
+                const bool is_rgba8 = (fmt == 37 || fmt == 44 || fmt == 10);
+                if (is_rgba8) {
+                    const u32 dump_w = std::min(img.info.size.width, 256u);
+                    const u32 dump_h = std::min(img.info.size.height, 256u);
+                    std::string path = fmt::format("{}/tex{:02d}_{}x{}.bmp", dir, (u32)i, dump_w, dump_h);
+                    std::ofstream bmp(path, std::ios::binary);
+                    const u32 row_size = (dump_w * 3 + 3) & ~3u;
+                    u8 hdr[54] = {};
+                    hdr[0]='B';hdr[1]='M';*(u32*)(hdr+2)=54+row_size*dump_h;*(u32*)(hdr+10)=54;
+                    *(u32*)(hdr+14)=40;*(s32*)(hdr+18)=dump_w;*(s32*)(hdr+22)=-(s32)dump_h;
+                    *(u16*)(hdr+26)=1;*(u16*)(hdr+28)=24;
+                    bmp.write((char*)hdr,54);
+                    std::vector<u8> row(row_size);
+                    for (u32 y=0;y<dump_h;++y){
+                        std::memset(row.data(), 0, row_size);
+                        for(u32 x=0;x<dump_w;++x){
+                            u32 off=(y*img.info.pitch+x)*4;
+                            if (off+4 <= img.info.guest_size) {
+                                row[x*3+0]=src[off+2];row[x*3+1]=src[off+1];row[x*3+2]=src[off+0];
+                            }
                         }
+                        bmp.write((char*)row.data(),row_size);
                     }
-                    bmp.write((char*)row.data(),row_size);
+                    bmp.close();
                 }
-                bmp.close();
+
+                LOG_INFO(Render_Vulkan,
+                         "KNACK_WRITER_DUMP_TEX slot={} fmt={} tiled={} size={}x{} raw={}",
+                         (u32)i, fmt, img.info.props.is_tiled, img.info.size.width,
+                         img.info.size.height, raw_path);
             }
             LOG_INFO(Render_Vulkan, "KNACK_WRITER_DUMP dir={} armed_left={}", dir, writer_dump_armed);
         }
