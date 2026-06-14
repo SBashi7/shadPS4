@@ -294,8 +294,10 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     const auto& wflags = KnackDiag::GetFlags();
     static u32 writer_dump_armed = 0;
     static u32 writer_dump_seq = 0;
+    bool is_writer_draw = false;
     if (wflags.writer_audit && liverpool->regs.vs_program.address == wflags.writer_vs &&
         liverpool->regs.ps_program.address == wflags.writer_fs) {
+        is_writer_draw = true;
         // Check trigger file
         if (writer_dump_armed == 0 && std::filesystem::exists("knack_dump_writer_now.txt")) {
             writer_dump_armed = wflags.writer_dump_max;
@@ -399,6 +401,15 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     pipeline->BindResources(set_writes, buffer_barriers, push_data);
     UpdateDynamicState(pipeline, is_indexed);
     scheduler.BeginRendering(state);
+
+    // RenderDoc label for writer draw
+    std::string writer_label;
+    if (is_writer_draw) {
+        writer_label = fmt::format(
+            "KNACK_BAD_FRAME_WRITER_BEGIN:VS_{:08x}:FS_{:08x}:WRITES_2a8ea0000",
+            (u32)wflags.writer_vs, (u32)wflags.writer_fs);
+        ScopeMarkerBegin(writer_label, false);
+    }
 
     // KNACK render diagnostics: check for effect draws
     const auto& knack_flags = KnackDiag::GetFlags();
@@ -583,6 +594,11 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
 
     // End effect scope marker
     if (is_effect_draw && knack_flags.renderdoc_labels) {
+        ScopeMarkerEnd(false);
+    }
+
+    // End writer label
+    if (is_writer_draw) {
         ScopeMarkerEnd(false);
     }
 
