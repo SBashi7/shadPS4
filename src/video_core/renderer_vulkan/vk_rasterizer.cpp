@@ -197,6 +197,70 @@ void Rasterizer::EliminateFastClear() {
     ScopeMarkerEnd();
 }
 
+// KNACK: BMP preview helpers
+static void WriteBmpPreview(const std::string& path, const u8* src, u32 pitch,
+                             u32 w, u32 h) {
+    const u32 dw = std::min(w, 256u), dh = std::min(h, 256u);
+    std::ofstream bmp(path, std::ios::binary);
+    const u32 row_size = (dw * 3 + 3) & ~3u;
+    u8 hdr[54] = {};
+    hdr[0]='B';hdr[1]='M';*(u32*)(hdr+2)=54+row_size*dh;*(u32*)(hdr+10)=54;
+    *(u32*)(hdr+14)=40;*(s32*)(hdr+18)=dw;*(s32*)(hdr+22)=-(s32)dh;
+    *(u16*)(hdr+26)=1;*(u16*)(hdr+28)=24;
+    bmp.write((char*)hdr,54);
+    std::vector<u8> row(row_size);
+    for (u32 y=0;y<dh;++y){
+        std::memset(row.data(),0,row_size);
+        for(u32 x=0;x<dw;++x){
+            u32 off=(y*pitch+x)*4;
+            row[x*3+0]=src[off+2];row[x*3+1]=src[off+1];row[x*3+2]=src[off+0];
+        }
+        bmp.write((char*)row.data(),row_size);
+    }
+    bmp.close();
+}
+
+static void WriteA2B10G10R10Bmp(const std::string& path, const u8* src, u32 pitch,
+                                 u32 w, u32 h, bool is_snorm) {
+    const u32 dw = std::min(w, 256u), dh = std::min(h, 256u);
+    std::ofstream bmp(path, std::ios::binary);
+    const u32 row_size = (dw * 3 + 3) & ~3u;
+    u8 hdr[54] = {};
+    hdr[0]='B';hdr[1]='M';*(u32*)(hdr+2)=54+row_size*dh;*(u32*)(hdr+10)=54;
+    *(u32*)(hdr+14)=40;*(s32*)(hdr+18)=dw;*(s32*)(hdr+22)=-(s32)dh;
+    *(u16*)(hdr+26)=1;*(u16*)(hdr+28)=24;
+    bmp.write((char*)hdr,54);
+    std::vector<u8> row(row_size);
+    for (u32 y=0;y<dh;++y){
+        std::memset(row.data(),0,row_size);
+        for(u32 x=0;x<dw;++x){
+            u32 off=(y*pitch+x)*4;
+            u32 packed = *(const u32*)(src+off);
+            // A2B10G10R10: R=bits 0-9, G=bits 10-19, B=bits 20-29, A=bits 30-31
+            u32 r10 = (packed >> 0) & 0x3FF;
+            u32 g10 = (packed >> 10) & 0x3FF;
+            u32 b10 = (packed >> 20) & 0x3FF;
+            if (is_snorm) {
+                // SNORM: convert from signed 10-bit to unsigned 8-bit
+                // 10-bit SNORM: -1.0 = 0x000, 0.0 = 0x200, +1.0 = 0x3FF
+                // Map to 0-255: (normalized + 1) / 2 * 255
+                float r_n = ((int)r10 - 0x200) / 511.0f;
+                float g_n = ((int)g10 - 0x200) / 511.0f;
+                float b_n = ((int)b10 - 0x200) / 511.0f;
+                row[x*3+0] = (u8)std::clamp((int)((b_n + 1.0f) * 127.5f), 0, 255);
+                row[x*3+1] = (u8)std::clamp((int)((g_n + 1.0f) * 127.5f), 0, 255);
+                row[x*3+2] = (u8)std::clamp((int)((r_n + 1.0f) * 127.5f), 0, 255);
+            } else {
+                row[x*3+0] = (u8)((b10 * 255) / 1023);
+                row[x*3+1] = (u8)((g10 * 255) / 1023);
+                row[x*3+2] = (u8)((r10 * 255) / 1023);
+            }
+        }
+        bmp.write((char*)row.data(),row_size);
+    }
+    bmp.close();
+}
+
 void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     RENDERER_TRACE;
 
@@ -268,56 +332,61 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                      img.info.props.is_depth, img.info.pitch);
         }
 
-        // Dump when armed (trigger-file activated)
+        // Dump when armed
         if (writer_dump_armed > 0) {
             writer_dump_armed--;
             writer_dump_seq++;
             std::string dir = fmt::format("dumps/knack_writer/seq{:04d}", writer_dump_seq);
             std::filesystem::create_directories(dir);
+
+            // Dump OUTPUT (frame image) BEFORE draw
+            {
+                const auto& out_img = texture_cache.GetImage(bound_images[0]);
+                const u8* out_src = reinterpret_cast<const u8*>(out_img.info.guest_address);
+                WriteBmpPreview(dir + "/output_before.bmp", out_src, out_img.info.pitch,
+                                out_img.info.size.width, out_img.info.size.height);
+                // RAW dump of output
+                std::ofstream oraw(dir + "/output_before.raw", std::ios::binary);
+                oraw.write(reinterpret_cast<const char*>(out_src),
+                           std::min(out_img.info.guest_size, 16u * 1024u * 1024u));
+                oraw.close();
+            }
+
+            // Dump input textures
             for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
                 const auto& img = texture_cache.GetImage(bound_images[i]);
                 const u32 fmt = static_cast<u32>(img.info.pixel_format);
+                const u8* src = reinterpret_cast<const u8*>(img.info.guest_address);
 
-                // Raw bytes dump (always)
+                // Raw bytes dump
                 std::string raw_path = fmt::format("{}/tex{:02d}_raw.bin", dir, (u32)i);
                 std::ofstream raw(raw_path, std::ios::binary);
-                const u32 raw_size = std::min(img.info.guest_size, 256u * 1024u);
-                const u8* src = reinterpret_cast<const u8*>(img.info.guest_address);
-                raw.write(reinterpret_cast<const char*>(src), raw_size);
+                raw.write(reinterpret_cast<const char*>(src),
+                          std::min(img.info.guest_size, 256u * 1024u));
                 raw.close();
 
-                // BMP preview: only for RGBA8-like formats (skip packed/snorm/compressed)
-                const bool is_rgba8 = (fmt == 37 || fmt == 44 || fmt == 10);
-                if (is_rgba8) {
-                    const u32 dump_w = std::min(img.info.size.width, 256u);
-                    const u32 dump_h = std::min(img.info.size.height, 256u);
-                    std::string path = fmt::format("{}/tex{:02d}_{}x{}.bmp", dir, (u32)i, dump_w, dump_h);
-                    std::ofstream bmp(path, std::ios::binary);
-                    const u32 row_size = (dump_w * 3 + 3) & ~3u;
-                    u8 hdr[54] = {};
-                    hdr[0]='B';hdr[1]='M';*(u32*)(hdr+2)=54+row_size*dump_h;*(u32*)(hdr+10)=54;
-                    *(u32*)(hdr+14)=40;*(s32*)(hdr+18)=dump_w;*(s32*)(hdr+22)=-(s32)dump_h;
-                    *(u16*)(hdr+26)=1;*(u16*)(hdr+28)=24;
-                    bmp.write((char*)hdr,54);
-                    std::vector<u8> row(row_size);
-                    for (u32 y=0;y<dump_h;++y){
-                        std::memset(row.data(), 0, row_size);
-                        for(u32 x=0;x<dump_w;++x){
-                            u32 off=(y*img.info.pitch+x)*4;
-                            if (off+4 <= img.info.guest_size) {
-                                row[x*3+0]=src[off+2];row[x*3+1]=src[off+1];row[x*3+2]=src[off+0];
-                            }
-                        }
-                        bmp.write((char*)row.data(),row_size);
-                    }
-                    bmp.close();
+                // BMP preview: decode based on format
+                if (fmt == 145) {
+                    // A2B10G10R10 SNORM/UNORM: decode both
+                    WriteA2B10G10R10Bmp(dir + "/tex02_A2B10G10R10_UNORM_preview.bmp", src, img.info.pitch,
+                                        img.info.size.width, img.info.size.height, false);
+                    WriteA2B10G10R10Bmp(dir + "/tex02_A2B10G10R10_SNORM_preview.bmp", src, img.info.pitch,
+                                        img.info.size.width, img.info.size.height, true);
+                } else if (fmt == 37 || fmt == 44) {
+                    WriteBmpPreview(dir + fmt::format("/tex{:02d}.bmp", (u32)i), src, img.info.pitch,
+                                    img.info.size.width, img.info.size.height);
                 }
 
                 LOG_INFO(Render_Vulkan,
-                         "KNACK_WRITER_DUMP_TEX slot={} fmt={} tiled={} size={}x{} raw={}",
-                         (u32)i, fmt, img.info.props.is_tiled, img.info.size.width,
-                         img.info.size.height, raw_path);
+                         "KNACK_WRITER_DUMP_TEX slot={} fmt_vk={} tile={} size={}x{}",
+                         (u32)i, fmt, static_cast<u32>(img.info.tile_mode),
+                         img.info.size.width, img.info.size.height);
             }
+
+            // Dump OUTPUT AFTER draw (deferred via lambda)
+            // We can't dump after draw here because draw hasn't happened yet.
+            // Output_after will be dumped on the NEXT writer draw as output_before.
+
             LOG_INFO(Render_Vulkan, "KNACK_WRITER_DUMP dir={} armed_left={}", dir, writer_dump_armed);
         }
     }
