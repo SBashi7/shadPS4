@@ -227,6 +227,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     }
 
     // KNACK WRITER AUDIT
+    const auto& wflags = KnackDiag::GetFlags();
     static u32 writer_dump_armed = 0;
     static u32 writer_dump_seq = 0;
     if (wflags.writer_audit && liverpool->regs.vs_program.address == wflags.writer_vs &&
