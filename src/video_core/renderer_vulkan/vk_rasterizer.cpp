@@ -226,11 +226,17 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
             liverpool->regs.ps_program.address);
     }
 
-    // KNACK WRITER AUDIT: targeted logging for the corrupt-frame writer shader
-    const auto& wflags = KnackDiag::GetFlags();
-    static u32 writer_dump_count = 0;
+    // KNACK WRITER AUDIT
+    static u32 writer_dump_armed = 0;
+    static u32 writer_dump_seq = 0;
     if (wflags.writer_audit && liverpool->regs.vs_program.address == wflags.writer_vs &&
         liverpool->regs.ps_program.address == wflags.writer_fs) {
+        // Check trigger file
+        if (writer_dump_armed == 0 && std::filesystem::exists("knack_dump_writer_now.txt")) {
+            writer_dump_armed = wflags.writer_dump_max;
+            std::filesystem::remove("knack_dump_writer_now.txt");
+            LOG_INFO(Render_Vulkan, "KNACK_WRITER_DUMP_ARMED count={}", writer_dump_armed);
+        }
         const auto& key = pipeline->GetGraphicsKey();
         bool writes_frame_image = false;
         if (!bound_images.empty()) {
@@ -261,11 +267,11 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                      img.info.props.is_depth, img.info.pitch);
         }
 
-        // Dump input textures for first N draws (skip frame 0, everything empty at startup)
-        if (writer_dump_count < wflags.writer_dump_max && KnackDiag::g_submit_id.load() > 0) {
-            writer_dump_count++;
-            std::string dir = fmt::format("dumps/knack_writer/frame{:04d}_draw{:04d}",
-                                          KnackDiag::g_frame_id.load(), KnackDiag::g_draw_id.load());
+        // Dump when armed (trigger-file activated)
+        if (writer_dump_armed > 0) {
+            writer_dump_armed--;
+            writer_dump_seq++;
+            std::string dir = fmt::format("dumps/knack_writer/seq{:04d}", writer_dump_seq);
             std::filesystem::create_directories(dir);
             for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
                 const auto& img = texture_cache.GetImage(bound_images[i]);
@@ -282,6 +288,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                 std::vector<u8> row(row_size);
                 const u8* src = reinterpret_cast<const u8*>(img.info.guest_address);
                 for (u32 y=0;y<dump_h;++y){
+                    std::memset(row.data(), 0, row_size);
                     for(u32 x=0;x<dump_w;++x){
                         u32 off=(y*img.info.pitch+x)*4;
                         if (off+4 <= img.info.guest_size) {
@@ -292,12 +299,8 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                 }
                 bmp.close();
             }
-            LOG_INFO(Render_Vulkan, "KNACK_WRITER_DUMP dir={} draw={}", dir, KnackDiag::g_draw_id.load());
+            LOG_INFO(Render_Vulkan, "KNACK_WRITER_DUMP dir={} armed_left={}", dir, writer_dump_armed);
         }
-
-        // RenderDoc label
-        ScopeMarkerBegin(fmt::format("KNACK_BAD_FRAME_WRITER:VS_{:08x}:FS_{:08x}:WRITES_2a8ea0000",
-                                     (u32)wflags.writer_vs, (u32)wflags.writer_fs), false);
     }
 
     buffer_cache.BindVertexBuffers(*pipeline);
