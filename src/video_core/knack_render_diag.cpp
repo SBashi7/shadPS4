@@ -68,6 +68,12 @@ Flags Flags::LoadFromEnv() {
     }
 
     // NEVER write files during startup. FrameImageTracker only uses LOG_INFO.
+    // KNACK WRITER AUDIT: hardcoded ON for diagnostic
+    f.writer_audit = true;
+    f.writer_vs = 0x029cf6b4;
+    f.writer_fs = 0x029cf6b8;
+    f.writer_dump_max = 10;
+
     return f;
 }
 

@@ -47,6 +47,10 @@ inline constexpr auto ENV_TEXTURE_DUMP_TOP_N = "KNACK_TEXTURE_DUMP_TOP_N";
 inline constexpr auto ENV_FRAME_IMAGE_FORCE_SAFE_COPY = "KNACK_FRAME_IMAGE_FORCE_SAFE_COPY";
 inline constexpr auto ENV_WATCH_ADDR = "KNACK_WATCH_ADDR";
 inline constexpr auto ENV_WATCH_SIZE = "KNACK_WATCH_SIZE";
+inline constexpr auto ENV_WRITER_AUDIT = "KNACK_WRITER_AUDIT";
+inline constexpr auto ENV_WRITER_VS = "KNACK_WRITER_VS";
+inline constexpr auto ENV_WRITER_FS = "KNACK_WRITER_FS";
+inline constexpr auto ENV_WRITER_DUMP_MAX = "KNACK_WRITER_DUMP_MAX";
 inline constexpr auto ENV_FORCE_REDETILE = "KNACK_FORCE_REDETILE_BEFORE_FINAL";
 
 // ─── Feature flags ──────────────────────────────────────────────────
@@ -66,7 +70,11 @@ struct Flags {
     bool frame_image_force_safe_copy = false;
     u64 watch_addr = 0x2a8ea0000;
     u32 watch_size = 0xE10000;
-    bool force_redetile = false;     // Force re-detile before final composite  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
+    bool force_redetile = false;
+    bool writer_audit = false;
+    u64 writer_vs = 0x029cf6b4;
+    u64 writer_fs = 0x029cf6b8;
+    u32 writer_dump_max = 3;     // Force re-detile before final composite  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
 
     static Flags LoadFromEnv();
 

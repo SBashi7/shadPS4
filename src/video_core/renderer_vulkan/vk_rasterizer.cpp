@@ -226,6 +226,80 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
             liverpool->regs.ps_program.address);
     }
 
+    // KNACK WRITER AUDIT: targeted logging for the corrupt-frame writer shader
+    const auto& wflags = KnackDiag::GetFlags();
+    static u32 writer_dump_count = 0;
+    if (wflags.writer_audit && liverpool->regs.vs_program.address == wflags.writer_vs &&
+        liverpool->regs.ps_program.address == wflags.writer_fs) {
+        const auto& key = pipeline->GetGraphicsKey();
+        bool writes_frame_image = false;
+        if (!bound_images.empty()) {
+            const auto& img0 = texture_cache.GetImage(bound_images[0]);
+            if (img0.info.guest_address == 0x2a8ea0000) writes_frame_image = true;
+        }
+
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_WRITER_DRAW frame={} submit={} draw={} vs=0x{:08x} fs=0x{:08x} "
+                 "num_idx={} num_inst={} writes_frame_image={} "
+                 "blend_en={} write_mask=0x{:x} num_color_att={} "
+                 "rt_fmt={}",
+                 KnackDiag::g_frame_id.load(), KnackDiag::g_submit_id.load(),
+                 KnackDiag::g_draw_id.load(), (u32)wflags.writer_vs, (u32)wflags.writer_fs,
+                 regs.num_indices, regs.num_instances.NumInstances(), writes_frame_image,
+                 key.blend_controls[0].enable, regs.color_target_mask.GetMask(0),
+                 key.num_color_attachments, static_cast<u32>(key.color_buffers[0].data_format));
+
+        // Log bound textures
+        for (size_t i = 0; i < bound_images.size() && i < 8; ++i) {
+            const auto& img = texture_cache.GetImage(bound_images[i]);
+            LOG_INFO(Render_Vulkan,
+                     "KNACK_WRITER_TEX slot={} gpu_addr=0x{:016x} size={}x{} fmt={} tile={} "
+                     "mips={} usage=0x{:x} is_depth={} pitch={}",
+                     (u32)i, img.info.guest_address, img.info.size.width, img.info.size.height,
+                     static_cast<u32>(img.info.pixel_format), static_cast<u32>(img.info.tile_mode),
+                     img.info.resources.levels, static_cast<u32>(img.usage_flags),
+                     img.info.props.is_depth, img.info.pitch);
+        }
+
+        // Dump input textures for first N draws
+        if (writer_dump_count < wflags.writer_dump_max) {
+            writer_dump_count++;
+            std::string dir = fmt::format("dumps/knack_writer/frame{:04d}_draw{:04d}",
+                                          KnackDiag::g_frame_id.load(), KnackDiag::g_draw_id.load());
+            std::filesystem::create_directories(dir);
+            for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
+                const auto& img = texture_cache.GetImage(bound_images[i]);
+                const u32 dump_w = std::min(img.info.size.width, 256u);
+                const u32 dump_h = std::min(img.info.size.height, 256u);
+                std::string path = fmt::format("{}/tex{:02d}_{}x{}.bmp", dir, (u32)i, dump_w, dump_h);
+                std::ofstream bmp(path, std::ios::binary);
+                const u32 row_size = (dump_w * 3 + 3) & ~3u;
+                u8 hdr[54] = {};
+                hdr[0]='B';hdr[1]='M';*(u32*)(hdr+2)=54+row_size*dump_h;*(u32*)(hdr+10)=54;
+                *(u32*)(hdr+14)=40;*(s32*)(hdr+18)=dump_w;*(s32*)(hdr+22)=-(s32)dump_h;
+                *(u16*)(hdr+26)=1;*(u16*)(hdr+28)=24;
+                bmp.write((char*)hdr,54);
+                std::vector<u8> row(row_size);
+                const u8* src = reinterpret_cast<const u8*>(img.info.guest_address);
+                for (u32 y=0;y<dump_h;++y){
+                    for(u32 x=0;x<dump_w;++x){
+                        u32 off=(y*img.info.pitch+x)*4;
+                        if (off+4 <= img.info.guest_size) {
+                            row[x*3+0]=src[off+2];row[x*3+1]=src[off+1];row[x*3+2]=src[off+0];
+                        }
+                    }
+                    bmp.write((char*)row.data(),row_size);
+                }
+                bmp.close();
+            }
+            LOG_INFO(Render_Vulkan, "KNACK_WRITER_DUMP dir={} draw={}", dir, KnackDiag::g_draw_id.load());
+        }
+
+        // RenderDoc label
+        ScopeMarkerBegin(fmt::format("KNACK_BAD_FRAME_WRITER:VS_{:08x}:FS_{:08x}:WRITES_2a8ea0000",
+                                     (u32)wflags.writer_vs, (u32)wflags.writer_fs), false);
+    }
+
     buffer_cache.BindVertexBuffers(*pipeline);
     if (is_indexed) {
         buffer_cache.BindIndexBuffer(index_offset);
