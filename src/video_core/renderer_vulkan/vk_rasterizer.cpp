@@ -218,6 +218,14 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     }
     const auto state = BeginRendering(pipeline);
 
+    // Track color attachment writes for effect detection
+    if (!bound_images.empty()) {
+        const auto& img0 = texture_cache.GetImage(bound_images[0]);
+        KnackDiag::VkImageRecordColorWrite(
+            img0.info.guest_address, liverpool->regs.vs_program.address,
+            liverpool->regs.ps_program.address);
+    }
+
     buffer_cache.BindVertexBuffers(*pipeline);
     if (is_indexed) {
         buffer_cache.BindIndexBuffer(index_offset);
@@ -400,6 +408,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                     0, img0.info.guest_address, KnackDiag::g_draw_id.load(),
                     liverpool->regs.vs_program.address, liverpool->regs.ps_program.address);
                 KnackDiag::WatchRecordFinalSample(img0.info.guest_address, KnackDiag::g_draw_id.load());
+                KnackDiag::VkImageRecordFinalSample(img0.info.guest_address);
             }
         }
     } else {
@@ -501,6 +510,13 @@ void Rasterizer::DispatchDirect() {
 
     if (!BindResources(pipeline)) {
         return;
+    }
+
+    // Track compute storage writes
+    if (!bound_images.empty()) {
+        const auto& img0 = texture_cache.GetImage(bound_images[0]);
+        KnackDiag::VkImageRecordComputeWrite(img0.info.guest_address,
+                                             cs_program.address);
     }
 
     scheduler.EndRendering();

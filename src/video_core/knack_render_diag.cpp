@@ -750,4 +750,59 @@ bool WatchShouldForceRedetile(u64 addr) {
     return (addr == g_flags.watch_addr) && (w.GetFinalSampleCount() > w.GetDetileCount());
 }
 
+// ─── Vulkan Image Writer Tracking ──────────────────────────────────
+
+namespace {
+struct VkImageWriter {
+    const char* writer_type = "unknown"; // color_attachment, compute_storage, copy
+    u64 vs_hash = 0;
+    u64 fs_hash = 0;
+    u64 cs_hash = 0;
+    u32 write_count = 0;
+};
+std::mutex vk_writer_mtx;
+std::map<u64, VkImageWriter> vk_image_writers; // gpu_addr -> last writer
+} // namespace
+
+void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash) {
+    std::lock_guard lock(vk_writer_mtx);
+    auto& w = vk_image_writers[gpu_addr];
+    w.writer_type = "color_attachment";
+    w.vs_hash = vs_hash;
+    w.fs_hash = fs_hash;
+    w.write_count++;
+    LOG_INFO(Render_Vulkan, "KNACK_VK_IMAGE_COLOR_WRITE addr=0x{:016x} vs=0x{:08x} fs=0x{:08x} count={}",
+             gpu_addr, (u32)vs_hash, (u32)fs_hash, w.write_count);
+}
+
+void VkImageRecordComputeWrite(u64 gpu_addr, u64 cs_hash) {
+    std::lock_guard lock(vk_writer_mtx);
+    auto& w = vk_image_writers[gpu_addr];
+    w.writer_type = "compute_storage";
+    w.cs_hash = cs_hash;
+    w.write_count++;
+    LOG_INFO(Render_Vulkan, "KNACK_VK_IMAGE_COMPUTE_WRITE addr=0x{:016x} cs=0x{:08x} count={}",
+             gpu_addr, (u32)cs_hash, w.write_count);
+}
+
+void VkImageRecordFinalSample(u64 gpu_addr) {
+    std::lock_guard lock(vk_writer_mtx);
+    auto it = vk_image_writers.find(gpu_addr);
+    if (it != vk_image_writers.end()) {
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_FINAL_IMAGE_SAMPLE_WITH_LAST_WRITER addr=0x{:016x} last_writer={} "
+                 "vs=0x{:08x} fs=0x{:08x} cs=0x{:08x} write_count={}",
+                 gpu_addr, it->second.writer_type, (u32)it->second.vs_hash,
+                 (u32)it->second.fs_hash, (u32)it->second.cs_hash, it->second.write_count);
+    } else {
+        LOG_INFO(Render_Vulkan, "KNACK_FINAL_IMAGE_UNKNOWN_WRITER addr=0x{:016x}", gpu_addr);
+    }
+}
+
+const char* VkImageGetLastWriter(u64 gpu_addr) {
+    std::lock_guard lock(vk_writer_mtx);
+    auto it = vk_image_writers.find(gpu_addr);
+    return (it != vk_image_writers.end()) ? it->second.writer_type : "unknown";
+}
+
 } // namespace KnackDiag
