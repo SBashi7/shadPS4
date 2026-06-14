@@ -327,28 +327,53 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                  static_cast<u32>(regs.depth_buffer.z_info.format),
                  static_cast<u32>(regs.depth_buffer.stencil_info.format));
 
-        // Log MRT per-RT detail
+        // Log MRT per-RT detail + alpha mask workaround
+        const auto& pipe_key = pipeline->GetGraphicsKey();
         for (u32 cb = 0; cb < AmdGpu::NUM_COLOR_BUFFERS && cb < 4; ++cb) {
             const auto& bc = regs.blend_control[cb];
+            u32 shader_mask = pipe_key.cb_shader_mask.GetMask(cb);
+            u32 target_mask = regs.color_target_mask.GetMask(cb);
+            bool alpha_masked = (shader_mask & 1) == 0; // ComponentA = bit 0
+            bool has_src_alpha = bc.color_src_factor == 4 || bc.color_src_factor == 3; // SrcA or 1-SrcA
+            bool has_dst_alpha = bc.color_dst_factor == 4 || bc.color_dst_factor == 3;
             LOG_INFO(Render_Vulkan,
                      "KNACK_WRITER_MRT cb={} enable={} src_factor={} dst_factor={} "
-                     "alpha_src={} alpha_dst={} write_mask=0x{:x} export_fmt={}",
+                     "write_mask_reg=0x{:x} export_fmt={} "
+                     "shader_mask=0x{:x} target_mask=0x{:x} "
+                     "alpha_masked={} srcA_blend={} workaround_triggered={}",
                      cb, bc.enable, static_cast<u32>(bc.color_src_factor),
-                     static_cast<u32>(bc.color_dst_factor), static_cast<u32>(bc.alpha_src_factor),
-                     static_cast<u32>(bc.alpha_dst_factor), regs.color_target_mask.GetMask(cb),
-                     static_cast<u32>(regs.color_export_format.GetFormat(cb)));
+                     static_cast<u32>(bc.color_dst_factor), target_mask,
+                     static_cast<u32>(regs.color_export_format.GetFormat(cb)),
+                     shader_mask, target_mask, alpha_masked, has_src_alpha,
+                     (alpha_masked && has_src_alpha));
         }
 
         // Log bound textures
         for (size_t i = 0; i < bound_images.size() && i < 8; ++i) {
             const auto& img = texture_cache.GetImage(bound_images[i]);
             LOG_INFO(Render_Vulkan,
-                     "KNACK_WRITER_TEX slot={} gpu_addr=0x{:016x} size={}x{} fmt={} tile={} "
-                     "mips={} usage=0x{:x} is_depth={} pitch={}",
+                     "KNACK_WRITER_TEX slot={} addr=0x{:016x} size={}x{} fmt_vk={} fmt_data={}"
+                     " tile={} mips={} usage=0x{:x} depth={}",
                      (u32)i, img.info.guest_address, img.info.size.width, img.info.size.height,
-                     static_cast<u32>(img.info.pixel_format), static_cast<u32>(img.info.tile_mode),
-                     img.info.resources.levels, static_cast<u32>(img.usage_flags),
-                     img.info.props.is_depth, img.info.pitch);
+                     static_cast<u32>(img.info.pixel_format),
+                     static_cast<u32>(img.info.props.data_format),
+                     static_cast<u32>(img.info.tile_mode), img.info.resources.levels,
+                     static_cast<u32>(img.usage_flags), img.info.props.is_depth);
+            // Slot2 detail: log actual VkFormat enum value
+            if (i == 2) {
+                const char* fmt_name = "unknown";
+                switch (static_cast<u32>(img.info.pixel_format)) {
+                case 145: fmt_name = "A2B10G10R10_UNORM_PACK32(VkFmt145)"; break;
+                case 146: fmt_name = "A2B10G10R10_SNORM_PACK32(VkFmt146)"; break;
+                case 37: fmt_name = "R8G8B8A8_UNORM"; break;
+                case 44: fmt_name = "B8G8R8A8_UNORM"; break;
+                default: fmt_name = "OTHER"; break;
+                }
+                LOG_INFO(Render_Vulkan,
+                         "KNACK_WRITER_SLOT2_FMT vk_fmt_raw={} name={} is_snorm={}",
+                         static_cast<u32>(img.info.pixel_format), fmt_name,
+                         static_cast<u32>(img.info.pixel_format) == 146);
+            }
         }
 
         // Dump when armed
