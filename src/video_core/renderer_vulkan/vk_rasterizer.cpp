@@ -261,8 +261,8 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                      img.info.props.is_depth, img.info.pitch);
         }
 
-        // Dump input textures for first N draws
-        if (writer_dump_count < wflags.writer_dump_max) {
+        // Dump input textures for first N draws (skip frame 0, everything empty at startup)
+        if (writer_dump_count < wflags.writer_dump_max && KnackDiag::g_submit_id.load() > 0) {
             writer_dump_count++;
             std::string dir = fmt::format("dumps/knack_writer/frame{:04d}_draw{:04d}",
                                           KnackDiag::g_frame_id.load(), KnackDiag::g_draw_id.load());
