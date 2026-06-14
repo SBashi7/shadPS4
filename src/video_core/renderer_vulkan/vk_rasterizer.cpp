@@ -334,8 +334,8 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
             u32 shader_mask = pipe_key.cb_shader_mask.GetMask(cb);
             u32 target_mask = regs.color_target_mask.GetMask(cb);
             bool alpha_masked = (shader_mask & 1) == 0; // ComponentA = bit 0
-            bool has_src_alpha = bc.color_src_factor == 4 || bc.color_src_factor == 3; // SrcA or 1-SrcA
-            bool has_dst_alpha = bc.color_dst_factor == 4 || bc.color_dst_factor == 3;
+            bool has_src_alpha = static_cast<u32>(bc.color_src_factor) == 4 || static_cast<u32>(bc.color_src_factor) == 3;
+            bool has_dst_alpha = static_cast<u32>(bc.color_dst_factor) == 4 || static_cast<u32>(bc.color_dst_factor) == 3;
             LOG_INFO(Render_Vulkan,
                      "KNACK_WRITER_MRT cb={} enable={} src_factor={} dst_factor={} "
                      "write_mask_reg=0x{:x} export_fmt={} "
@@ -352,11 +352,10 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         for (size_t i = 0; i < bound_images.size() && i < 8; ++i) {
             const auto& img = texture_cache.GetImage(bound_images[i]);
             LOG_INFO(Render_Vulkan,
-                     "KNACK_WRITER_TEX slot={} addr=0x{:016x} size={}x{} fmt_vk={} fmt_data={}"
+                     "KNACK_WRITER_TEX slot={} addr=0x{:016x} size={}x{} fmt_vk={}"
                      " tile={} mips={} usage=0x{:x} depth={}",
                      (u32)i, img.info.guest_address, img.info.size.width, img.info.size.height,
                      static_cast<u32>(img.info.pixel_format),
-                     static_cast<u32>(img.info.props.data_format),
                      static_cast<u32>(img.info.tile_mode), img.info.resources.levels,
                      static_cast<u32>(img.usage_flags), img.info.props.is_depth);
             // Slot2 detail: log actual VkFormat enum value
