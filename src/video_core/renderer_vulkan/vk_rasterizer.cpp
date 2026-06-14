@@ -312,15 +312,32 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         }
 
         LOG_INFO(Render_Vulkan,
-                 "KNACK_WRITER_DRAW frame={} submit={} draw={} vs=0x{:08x} fs=0x{:08x} "
-                 "num_idx={} num_inst={} writes_frame_image={} "
-                 "blend_en={} write_mask=0x{:x} num_color_att={} "
-                 "rt_fmt={}",
-                 KnackDiag::g_frame_id.load(), KnackDiag::g_submit_id.load(),
-                 KnackDiag::g_draw_id.load(), (u32)wflags.writer_vs, (u32)wflags.writer_fs,
-                 regs.num_indices, regs.num_instances.NumInstances(), writes_frame_image,
+                 "KNACK_WRITER_DRAW submit={} vs=0x{:08x} fs=0x{:08x} "
+                 "num_idx={} writes_frame={} blend={} write_mask=0x{:x} num_att={} "
+                 "rt0_fmt={} rt1_fmt={} color_export=0x{:08x} "
+                 "depth_en={} depth_write={} z_fmt={} stencil_fmt={}",
+                 KnackDiag::g_submit_id.load(), (u32)wflags.writer_vs, (u32)wflags.writer_fs,
+                 regs.num_indices, writes_frame_image,
                  key.blend_controls[0].enable, regs.color_target_mask.GetMask(0),
-                 key.num_color_attachments, static_cast<u32>(key.color_buffers[0].data_format));
+                 key.num_color_attachments,
+                 static_cast<u32>(key.color_buffers[0].data_format),
+                 key.num_color_attachments > 1 ? static_cast<u32>(key.color_buffers[1].data_format) : 0,
+                 regs.color_export_format.raw,
+                 regs.depth_control.depth_enable, regs.depth_control.depth_write_enable,
+                 static_cast<u32>(regs.depth_buffer.z_info.format),
+                 static_cast<u32>(regs.depth_buffer.stencil_info.format));
+
+        // Log MRT per-RT detail
+        for (u32 cb = 0; cb < AmdGpu::NUM_COLOR_BUFFERS && cb < 4; ++cb) {
+            const auto& bc = regs.blend_control[cb];
+            LOG_INFO(Render_Vulkan,
+                     "KNACK_WRITER_MRT cb={} enable={} src_factor={} dst_factor={} "
+                     "alpha_src={} alpha_dst={} write_mask=0x{:x} export_fmt={}",
+                     cb, bc.enable, static_cast<u32>(bc.color_src_factor),
+                     static_cast<u32>(bc.color_dst_factor), static_cast<u32>(bc.alpha_src_factor),
+                     static_cast<u32>(bc.alpha_dst_factor), regs.color_target_mask.GetMask(cb),
+                     static_cast<u32>(regs.color_export_format.GetFormat(cb)));
+        }
 
         // Log bound textures
         for (size_t i = 0; i < bound_images.size() && i < 8; ++i) {
