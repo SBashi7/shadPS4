@@ -94,6 +94,12 @@ Id EmitImageSampleRaw(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address1,
 
 Id EmitImageSampleImplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id bias,
                               const IR::Value& offset) {
+    // KNACK: zero slot1 samples for FS=0x292ecf9
+    if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
+        (handle & 0xFFFF) == 1) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     if (IsUfc3ColorGradingWorkaround(ctx, handle)) {
         return EmitUfc3ColorGradingPassthrough(ctx, coords);
     }
@@ -113,6 +119,11 @@ Id EmitImageSampleImplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id c
 
 Id EmitImageSampleExplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id lod,
                               const IR::Value& offset) {
+    if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
+        (handle & 0xFFFF) == 1) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     if (IsUfc3ColorGradingWorkaround(ctx, handle)) {
         return EmitUfc3ColorGradingPassthrough(ctx, coords);
     }
@@ -132,6 +143,10 @@ Id EmitImageSampleExplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id c
 
 Id EmitImageSampleDrefImplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id dref,
                                   Id bias, const IR::Value& offset) {
+    if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
+        (handle & 0xFFFF) == 1) {
+        return ctx.f32_zero_value;
+    }
     const auto& texture = ctx.images[handle & 0xFFFF];
     const Id image = ctx.OpLoad(texture.image_type, texture.id);
     const Id result_type = texture.data_types->Get(1);
@@ -149,6 +164,10 @@ Id EmitImageSampleDrefImplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, 
 
 Id EmitImageSampleDrefExplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id dref,
                                   Id lod, const IR::Value& offset) {
+    if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
+        (handle & 0xFFFF) == 1) {
+        return ctx.f32_zero_value;
+    }
     const auto& texture = ctx.images[handle & 0xFFFF];
     const Id image = ctx.OpLoad(texture.image_type, texture.id);
     const Id result_type = texture.data_types->Get(1);
@@ -166,6 +185,11 @@ Id EmitImageSampleDrefExplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, 
 
 Id EmitImageGather(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords,
                    const IR::Value& offset) {
+    if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
+        (handle & 0xFFFF) == 1) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     const auto& texture = ctx.images[handle & 0xFFFF];
     const Id image = ctx.OpLoad(texture.image_type, texture.id);
     const Id result_type = texture.data_types->Get(4);
@@ -230,6 +254,11 @@ Id EmitImageQueryLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords) {
 
 Id EmitImageGradient(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id derivatives_dx,
                      Id derivatives_dy, const IR::Value& offset, const IR::Value& lod_clamp) {
+    if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
+        (handle & 0xFFFF) == 1) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     if (IsUfc3ColorGradingWorkaround(ctx, handle)) {
         return EmitUfc3ColorGradingPassthrough(ctx, coords);
     }
