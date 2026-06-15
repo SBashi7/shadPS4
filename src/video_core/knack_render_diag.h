@@ -78,7 +78,10 @@ struct Flags {
     bool writer_slot2_force_unorm = false;
     bool writer_slot2_force_snorm = false;
     bool skip_shader_292ecf7 = false;
-    s32 zero_slot_292ecf7 = -1; // -1=none, 0-3=zero that slot for 0x292ecf7/9
+    s32 zero_slot_292ecf7 = -1;
+
+    // Tornado capture
+    bool tornado_capture = false;  // Hardcoded ON for capture build
 
     static Flags LoadFromEnv();
 
@@ -365,6 +368,40 @@ void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash,
 void VkImageRecordComputeWrite(u64 gpu_addr, u64 cs_hash);
 void VkImageRecordFinalSample(u64 gpu_addr);
 const char* VkImageGetLastWriter(u64 gpu_addr);
+
+// ─── Tornado Capture System ────────────────────────────────────────
+
+class TornadoCapture {
+public:
+    static TornadoCapture& Instance();
+    void CheckTrigger();  // Called each frame to check for trigger file
+    bool IsCapturing() const;
+    void RecordDraw(u64 vs_hash, u64 fs_hash, u64 gs_hash, u64 cs_hash,
+                    u32 num_idx, u32 num_inst, u64 output_addr, u32 output_fmt,
+                    u32 wmask, bool blend, u32 depth_en, u32 depth_write,
+                    u32 color_export, u32 shader_mask, u32 target_mask);
+    void RecordImageSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,
+                           bool same_output, const char* writer);
+    void EndFrame();
+    u64 HashGuest(u64 addr, u32 size);
+    void DumpBmp(const std::string& path, u64 addr, u32 w, u32 h);
+
+private:
+    std::mutex mtx;
+    bool active = false;
+    u32 capture_frame = 0;
+    u32 total_frames = 0;
+    static constexpr u32 CAPTURE_MAX = 180;
+    std::ofstream csv;
+};
+
+void TornadoRecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 inst,
+                       u64 out_addr, u32 out_fmt, u32 wmask, bool blend,
+                       u32 depth_en, u32 depth_write, u32 color_exp,
+                       u32 shader_mask, u32 target_mask);
+void TornadoRecordSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,
+                         bool same_out, const char* writer);
+void TornadoEndFrame();
 bool WatchShouldForceRedetile(u64 addr);
 
 } // namespace KnackDiag

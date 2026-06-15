@@ -75,7 +75,8 @@ Flags Flags::LoadFromEnv() {
     f.writer_dump_max = 10;
     f.writer_slot2_force_snorm = false; // DISABLED: breaks menu, doesn't fix particles
     f.skip_shader_292ecf7 = false; // DISABLED
-    f.zero_slot_292ecf7 = 0; // HARDCODE: zero slot 0 for particle color writer test
+    f.zero_slot_292ecf7 = -1;
+    f.tornado_capture = true; // HARDCODE: tornado capture ON
 
     return f;
 }
@@ -885,5 +886,110 @@ const char* VkImageGetLastWriter(u64 gpu_addr) {
     auto it = vk_image_writers.find(gpu_addr);
     return (it != vk_image_writers.end()) ? it->second.writer_type : "unknown";
 }
+
+// ─── Tornado Capture ───────────────────────────────────────────────
+
+TornadoCapture& TornadoCapture::Instance() {
+    static TornadoCapture tc;
+    return tc;
+}
+
+void TornadoCapture::CheckTrigger() {
+    if (active) return;
+    static bool checked = false;
+    if (!checked && std::filesystem::exists("KNACK_TORNADO_CAPTURE_NOW.txt")) {
+        checked = true;
+        std::filesystem::remove("KNACK_TORNADO_CAPTURE_NOW.txt");
+        active = true;
+        capture_frame = 0;
+        std::filesystem::create_directories("dumps/knack_tornado_capture");
+        csv.open("dumps/knack_tornado_capture/frames.csv");
+        csv << "frame,draw,vs_hash,fs_hash,gs_hash,cs_hash,num_idx,num_inst,out_addr,"
+               "out_fmt,wmask,blend,depth_en,depth_write,color_exp,shader_mask,target_mask\n";
+        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_BEGIN frames={}", CAPTURE_MAX);
+    }
+}
+
+bool TornadoCapture::IsCapturing() const { return active; }
+
+void TornadoCapture::RecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 inst,
+                                 u64 out_addr, u32 out_fmt, u32 wmask, bool blend,
+                                 u32 depth_en, u32 depth_write, u32 color_exp,
+                                 u32 shader_mask, u32 target_mask) {
+    std::lock_guard lock(mtx);
+    if (!active) return;
+    if (capture_frame >= CAPTURE_MAX) {
+        active = false;
+        csv.close();
+        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END total_frames={}", capture_frame);
+        return;
+    }
+    csv << capture_frame << "," << total_frames << ",0x" << fmt::format("{:08x}", (u32)vs)
+        << ",0x" << fmt::format("{:08x}", (u32)fs) << ",0x" << fmt::format("{:08x}", (u32)gs)
+        << ",0x" << fmt::format("{:08x}", (u32)cs) << "," << idx << "," << inst << ",0x"
+        << fmt::format("{:016x}", out_addr) << "," << out_fmt << "," << wmask << "," << blend
+        << "," << depth_en << "," << depth_write << ",0x" << fmt::format("{:08x}", color_exp)
+        << ",0x" << fmt::format("{:02x}", shader_mask) << ",0x" << fmt::format("{:02x}", target_mask)
+        << "\n";
+    csv.flush();
+}
+
+void TornadoCapture::RecordImageSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,
+                                        bool same_output, const char* writer) {
+    if (!active) return;
+    LOG_INFO(Render_Vulkan,
+             "KNACK_TORNADO_CAPTURE_IMAGE slot={} addr=0x{:016x} fmt={} tile={} {}x{} same_out={} writer={}",
+             slot, addr, fmt, tile, w, h, same_output, writer);
+}
+
+void TornadoCapture::EndFrame() {
+    if (!active) return;
+    capture_frame++;
+    if (capture_frame % 30 == 0) {
+        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_FRAME frame={}", capture_frame);
+    }
+}
+
+u64 TornadoCapture::HashGuest(u64 addr, u32 size) {
+    const u8* p = reinterpret_cast<const u8*>(addr);
+    if (!p) return 0;
+    return XXH3_64bits(p, std::min(size, 64u * 1024u));
+}
+
+void TornadoCapture::DumpBmp(const std::string& path, u64 addr, u32 w, u32 h) {
+    const u8* src = reinterpret_cast<const u8*>(addr);
+    if (!src) return;
+    const u32 dw = std::min(w, 320u), dh = std::min(h, 180u);
+    std::ofstream bmp(path, std::ios::binary);
+    const u32 row_size = (dw * 3 + 3) & ~3u;
+    u8 hdr[54] = {};
+    hdr[0]='B';hdr[1]='M';*(u32*)(hdr+2)=54+row_size*dh;*(u32*)(hdr+10)=54;
+    *(u32*)(hdr+14)=40;*(s32*)(hdr+18)=dw;*(s32*)(hdr+22)=-(s32)dh;
+    *(u16*)(hdr+26)=1;*(u16*)(hdr+28)=24;
+    bmp.write((char*)hdr,54);
+    std::vector<u8> row(row_size);
+    for (u32 y=0;y<dh;++y){
+        std::memset(row.data(),0,row_size);
+        for(u32 x=0;x<dw;++x){
+            u32 off=(y*2560+x)*4;
+            row[x*3+0]=src[off+2];row[x*3+1]=src[off+1];row[x*3+2]=src[off+0];
+        }
+        bmp.write((char*)row.data(),row_size);
+    }
+    bmp.close();
+}
+
+void TornadoRecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 inst,
+                       u64 out_addr, u32 out_fmt, u32 wmask, bool blend,
+                       u32 depth_en, u32 depth_write, u32 color_exp,
+                       u32 shader_mask, u32 target_mask) {
+    TornadoCapture::Instance().RecordDraw(vs, fs, gs, cs, idx, inst, out_addr, out_fmt, wmask,
+                                          blend, depth_en, depth_write, color_exp, shader_mask, target_mask);
+}
+void TornadoRecordSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,
+                         bool same_out, const char* writer) {
+    TornadoCapture::Instance().RecordImageSample(slot, addr, fmt, tile, w, h, same_out, writer);
+}
+void TornadoEndFrame() { TornadoCapture::Instance().EndFrame(); }
 
 } // namespace KnackDiag

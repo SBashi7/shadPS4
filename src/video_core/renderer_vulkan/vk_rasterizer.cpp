@@ -282,6 +282,35 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     }
     const auto state = BeginRendering(pipeline);
 
+    // Tornado capture: record draw state
+    if (KnackDiag::GetFlags().tornado_capture) {
+        const auto& pkey = pipeline->GetGraphicsKey();
+        KnackDiag::TornadoRecordDraw(regs.vs_program.address, regs.ps_program.address,
+                                      regs.gs_program.address, 0, regs.num_indices,
+                                      regs.num_instances.NumInstances(),
+                                      bound_images.empty() ? 0 : texture_cache.GetImage(bound_images[0]).info.guest_address,
+                                      static_cast<u32>(pkey.color_buffers[0].data_format),
+                                      regs.color_target_mask.GetMask(0),
+                                      regs.blend_control[0].enable != 0,
+                                      regs.depth_control.depth_enable,
+                                      regs.depth_control.depth_write_enable,
+                                      regs.color_export_format.raw,
+                                      regs.color_shader_mask.GetMask(0),
+                                      regs.color_target_mask.GetMask(0));
+        if (KnackDiag::TornadoCapture::Instance().IsCapturing() &&
+            regs.vs_program.address == 0x292ecf7 && regs.ps_program.address == 0x292ecf9) {
+            const auto& out_img = texture_cache.GetImage(bound_images[0]);
+            for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
+                const auto& img = texture_cache.GetImage(bound_images[i]);
+                KnackDiag::TornadoRecordSample(
+                    (u32)i, img.info.guest_address, static_cast<u32>(img.info.pixel_format),
+                    static_cast<u32>(img.info.tile_mode), img.info.size.width, img.info.size.height,
+                    img.GetImage() == out_img.GetImage(),
+                    KnackDiag::VkImageGetLastWriter(img.info.guest_address));
+            }
+        }
+    }
+
     // Track color attachment writes for effect detection
     if (!bound_images.empty()) {
         const auto& img0 = texture_cache.GetImage(bound_images[0]);

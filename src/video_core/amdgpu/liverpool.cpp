@@ -328,6 +328,9 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     const auto& knack_flags = KnackDiag::GetFlags();
     const u64 knack_submit_id = KnackDiag::g_submit_id.fetch_add(1);
 
+    // Tornado capture trigger check
+    KnackDiag::TornadoCapture::Instance().CheckTrigger();
+
     LOG_INFO(Lib_GnmDriver,
              "KNACK_DIAG_CHECK texture_audit={} effect_diag={} any_effect={} render_diag={}",
              knack_flags.texture_audit, knack_flags.effect_diag, knack_flags.AnyEffectDiag(),
