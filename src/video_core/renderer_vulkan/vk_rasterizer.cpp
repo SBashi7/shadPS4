@@ -502,23 +502,10 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                      last_writer);
         }
 
-        // Zero slot: replace binding with black dummy
-        if (wflags.zero_slot_292ecf7 >= 0 && (u32)wflags.zero_slot_292ecf7 < bound_images.size()) {
-            for (auto& write : set_writes) {
-                if (write.descriptorType == vk::DescriptorType::eSampledImage &&
-                    (s32)write.dstBinding == wflags.zero_slot_292ecf7 && write.pImageInfo) {
-                    // Use texture_cache to find a 1x1 black image
-                    const auto& z_img = texture_cache.GetImage(bound_images[0]);
-                    static vk::DescriptorImageInfo zero_info;
-                    zero_info = {.sampler = write.pImageInfo->sampler,
-                                 .imageView = z_img.FindView({}).image_view.get(),
-                                 .imageLayout = write.pImageInfo->imageLayout};
-                    write.pImageInfo = &zero_info;
-                    LOG_INFO(Render_Vulkan, "KNACK_PARTICLE_COLOR_ZERO_SLOT slot={} zeroing",
-                             wflags.zero_slot_292ecf7);
-                    break;
-                }
-            }
+        // Zero slot test disabled for now (requires mutable texture cache access)
+        if (wflags.zero_slot_292ecf7 >= 0) {
+            LOG_INFO(Render_Vulkan, "KNACK_PARTICLE_COLOR_ZERO_SLOT slot={} skipped (not implemented)",
+                     wflags.zero_slot_292ecf7);
         }
     }
 
