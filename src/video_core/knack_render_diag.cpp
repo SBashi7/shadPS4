@@ -789,7 +789,6 @@ static std::map<u64, VkImageWriter> vk_image_writers; // gpu_addr -> last writer
 
 void AddWriterHistory(u64 submit_id, const char* type, u64 vs, u64 fs, u64 cs,
                       u32 idx, u32 inst, u64 addr, bool blend, u32 wmask) {
-    std::lock_guard lock(g_history_mtx);
     auto& e = g_writer_history[g_writer_history_pos % HISTORY_SIZE];
     e.submit_id = submit_id;
     e.writer_type = type;
@@ -805,7 +804,6 @@ void AddWriterHistory(u64 submit_id, const char* type, u64 vs, u64 fs, u64 cs,
 }
 
 void DumpWriterHistory() {
-    std::lock_guard lock(g_history_mtx);
     u32 start = (g_writer_history_pos > HISTORY_SIZE) ? (g_writer_history_pos - HISTORY_SIZE) : 0;
     u32 end = g_writer_history_pos;
     LOG_INFO(Render_Vulkan, "KNACK_FRAME_WRITER_HISTORY_BEGIN total={}", g_writer_history_pos);
@@ -823,7 +821,6 @@ void DumpWriterHistory() {
 } // namespace
 
 void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash) {
-    std::lock_guard lock(g_history_mtx);
     auto& w = vk_image_writers[gpu_addr];
     w.writer_type = "color_attachment";
     w.vs_hash = vs_hash;
@@ -838,7 +835,6 @@ void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash) {
 }
 
 void VkImageRecordComputeWrite(u64 gpu_addr, u64 cs_hash) {
-    std::lock_guard lock(g_history_mtx);
     auto& w = vk_image_writers[gpu_addr];
     w.writer_type = "compute_storage";
     w.cs_hash = cs_hash;
@@ -851,7 +847,6 @@ void VkImageRecordComputeWrite(u64 gpu_addr, u64 cs_hash) {
 }
 
 void VkImageRecordFinalSample(u64 gpu_addr) {
-    std::lock_guard lock(g_history_mtx);
     auto it = vk_image_writers.find(gpu_addr);
     if (it != vk_image_writers.end()) {
         LOG_INFO(Render_Vulkan,
@@ -867,7 +862,6 @@ void VkImageRecordFinalSample(u64 gpu_addr) {
 }
 
 const char* VkImageGetLastWriter(u64 gpu_addr) {
-    std::lock_guard lock(g_history_mtx);
     auto it = vk_image_writers.find(gpu_addr);
     return (it != vk_image_writers.end()) ? it->second.writer_type : "unknown";
 }
