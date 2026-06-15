@@ -391,7 +391,7 @@ private:
     bool active = false;
     u32 capture_frame = 0;
     u32 total_frames = 0;
-    static constexpr u32 CAPTURE_MAX = 60; // 60 frames ≈ 3 seconds
+    static constexpr u32 CAPTURE_MAX = 30000; // ~1 second of draws
     std::ofstream csv;
     std::map<std::pair<u32, u32>, u32> shader_counts;
     void DumpShaderSummary();

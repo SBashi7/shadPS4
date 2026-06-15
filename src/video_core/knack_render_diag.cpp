@@ -932,6 +932,9 @@ void TornadoCapture::RecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 ins
                                  u32 depth_en, u32 depth_write, u32 color_exp,
                                  u32 shader_mask, u32 target_mask) {
     if (!active) return;
+    total_frames++;
+    capture_frame++;
+    shader_counts[{vs & 0xFFFFFFFF, fs & 0xFFFFFFFF}]++;
     if (capture_frame >= CAPTURE_MAX) {
         active = false;
         DumpShaderSummary();
