@@ -876,6 +876,15 @@ void TextureCache::ForceUploadImage(ImageId image_id) {
              image_id.index, image.info.guest_address);
 }
 
+vk::ImageView TextureCache::GetForcedView(ImageId image_id, vk::Format forced_format) {
+    Image& image = slot_images[image_id];
+    ImageViewInfo view_info;
+    view_info.format = forced_format;
+    view_info.range = {vk::ImageAspectFlagBits::eColor, 0, image.info.resources.levels, 0, image.info.resources.layers};
+    view_info.is_storage = false;
+    return image.FindView(view_info).image_view.get();
+}
+
 void TextureCache::RegisterImage(ImageId image_id) {
     Image& image = slot_images[image_id];
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered),
