@@ -867,7 +867,7 @@ void VkImageRecordFinalSample(u64 gpu_addr) {
 }
 
 const char* VkImageGetLastWriter(u64 gpu_addr) {
-    std::lock_guard lock(vk_writer_mtx);
+    std::lock_guard lock(g_history_mtx);
     auto it = vk_image_writers.find(gpu_addr);
     return (it != vk_image_writers.end()) ? it->second.writer_type : "unknown";
 }
