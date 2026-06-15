@@ -448,20 +448,23 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         vk::ImageView forced_view =
             texture_cache.GetForcedView(bound_images[2], vk::Format::eA2B10G10R10SnormPack32);
         if (forced_view) {
-            // Replace pImageInfo with new one using forced view
+            // Replace pImageInfo on ALL sampled image bindings (apply Slot2 SNORM globally for writer)
+            bool applied = false;
             for (auto& write : set_writes) {
+                LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_SEARCH binding={} type={}",
+                         write.dstBinding, (u32)write.descriptorType);
                 if (write.descriptorType == vk::DescriptorType::eSampledImage &&
-                    write.dstBinding == 2) {
-                    // Can't modify const imageView directly - replace whole pImageInfo
+                    write.pImageInfo) {
                     static vk::DescriptorImageInfo forced_info;
                     forced_info = {.sampler = write.pImageInfo->sampler,
                                    .imageView = forced_view,
                                    .imageLayout = write.pImageInfo->imageLayout};
                     write.pImageInfo = &forced_info;
-                    LOG_INFO(Render_Vulkan,
-                             "KNACK_SLOT2_OVERRIDE_APPLIED forced SNORM view binding=2");
-                    break;
+                    applied = true;
                 }
+            }
+            LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_APPLIED applied={} on_sampled_bindings",
+                     applied);
             }
         } else {
             LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_FAILED reason=forced_view_null");
