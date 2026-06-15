@@ -487,25 +487,26 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     if (regs.vs_program.address == 0x292ecf7 && regs.ps_program.address == 0x292ecf9) {
         const auto& pipe_key = pipeline->GetGraphicsKey();
         LOG_INFO(Render_Vulkan,
-                 "KNACK_PARTICLE_COLOR_WRITER num_tex={} wmask=0x{:x} blend={} rt_fmt={} color_exp=0x{:08x} zero_slot={}",
+                 "KNACK_PARTICLE_COLOR_WRITER num_tex={} wmask=0x{:x} blend={} rt_fmt={} color_exp=0x{:08x}",
                  (u32)bound_images.size(), regs.color_target_mask.GetMask(0),
                  regs.blend_control[0].enable,
                  static_cast<u32>(pipe_key.color_buffers[0].data_format),
-                 regs.color_export_format.raw, wflags.zero_slot_292ecf7);
+                 regs.color_export_format.raw);
+        
+        // Feedback check: is slot0 same VkImage as output?
+        const auto& out_img = texture_cache.GetImage(bound_images[0]);
         for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
             const auto& img = texture_cache.GetImage(bound_images[i]);
-            const char* last_writer = KnackDiag::VkImageGetLastWriter(img.info.guest_address);
+            bool same = (img.image == out_img.image);
             LOG_INFO(Render_Vulkan,
-                     "KNACK_PARTICLE_COLOR_TEX slot={} addr=0x{:016x} size={}x{} fmt={} tile={} last_writer={}",
+                     "KNACK_FEEDBACK_SLOT slot={} addr=0x{:016x} size={}x{} fmt={} tile={} "
+                     "vk_image={:016x} output_image={:016x} same_image={}",
                      (u32)i, img.info.guest_address, img.info.size.width, img.info.size.height,
                      static_cast<u32>(img.info.pixel_format), static_cast<u32>(img.info.tile_mode),
-                     last_writer);
-        }
-
-        // Zero slot test disabled for now (requires mutable texture cache access)
-        if (wflags.zero_slot_292ecf7 >= 0) {
-            LOG_INFO(Render_Vulkan, "KNACK_PARTICLE_COLOR_ZERO_SLOT slot={} skipped (not implemented)",
-                     wflags.zero_slot_292ecf7);
+                     (u64)(VkImage)img.image, (u64)(VkImage)out_img.image, same);
+            if (i == 0 && same) {
+                LOG_INFO(Render_Vulkan, "KNACK_FEEDBACK_LOOP_DETECTED slot0_is_output");
+            }
         }
     }
 
