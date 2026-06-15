@@ -483,29 +483,42 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         }
     }
 
-    // Log particle color writer 0x292ecf7/0x292ecf9 textures
+    // Log particle color writer 0x292ecf7/0x292ecf9 textures + feedback check
     if (regs.vs_program.address == 0x292ecf7 && regs.ps_program.address == 0x292ecf9) {
         const auto& pipe_key = pipeline->GetGraphicsKey();
-        LOG_INFO(Render_Vulkan,
-                 "KNACK_PARTICLE_COLOR_WRITER num_tex={} wmask=0x{:x} blend={} rt_fmt={} color_exp=0x{:08x}",
-                 (u32)bound_images.size(), regs.color_target_mask.GetMask(0),
-                 regs.blend_control[0].enable,
-                 static_cast<u32>(pipe_key.color_buffers[0].data_format),
-                 regs.color_export_format.raw);
-        
-        // Feedback check: is slot0 same VkImage as output?
         const auto& out_img = texture_cache.GetImage(bound_images[0]);
         for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
             const auto& img = texture_cache.GetImage(bound_images[i]);
             bool same = (img.GetImage() == out_img.GetImage());
             LOG_INFO(Render_Vulkan,
-                     "KNACK_FEEDBACK_SLOT slot={} addr=0x{:016x} size={}x{} fmt={} tile={} "
-                     "same_vk_image={} has_gs={}",
+                     "KNACK_FEEDBACK_SLOT slot={} addr=0x{:016x} size={}x{} fmt={} tile={} same={} has_gs={}",
                      (u32)i, img.info.guest_address, img.info.size.width, img.info.size.height,
                      static_cast<u32>(img.info.pixel_format), static_cast<u32>(img.info.tile_mode),
                      same, regs.stage_enable.gs_en != 0);
             if (i == 0 && same) {
                 LOG_INFO(Render_Vulkan, "KNACK_FEEDBACK_LOOP_DETECTED slot0_is_output");
+            }
+        }
+
+        // KNACK_292ECF7_ZERO_SLOT0: replace slot0 with slot2's 32x32 texture
+        if (bound_images.size() > 2) {
+            const auto& slot2_img = texture_cache.GetImage(bound_images[2]);
+            vk::ImageView slot2_view = slot2_img.GetImage() != vk::Image{}
+                ? texture_cache.GetForcedView(bound_images[2], static_cast<vk::Format>(slot2_img.info.pixel_format))
+                : vk::ImageView{};
+            if (slot2_view) {
+                for (auto& write : set_writes) {
+                    if (write.descriptorType == vk::DescriptorType::eSampledImage &&
+                        write.dstBinding == 0 && write.pImageInfo) {
+                        static vk::DescriptorImageInfo slot0_info;
+                        slot0_info = {.sampler = write.pImageInfo->sampler,
+                                       .imageView = slot2_view,
+                                       .imageLayout = write.pImageInfo->imageLayout};
+                        write.pImageInfo = &slot0_info;
+                        LOG_INFO(Render_Vulkan, "KNACK_292ECF7_ZERO_SLOT0_APPLIED replaced with slot2 32x32");
+                        break;
+                    }
+                }
             }
         }
     }
