@@ -896,9 +896,7 @@ TornadoCapture& TornadoCapture::Instance() {
 
 void TornadoCapture::CheckTrigger() {
     if (active) return;
-    static bool checked = false;
-    if (!checked && std::filesystem::exists("KNACK_TORNADO_CAPTURE_NOW.txt")) {
-        checked = true;
+    if (std::filesystem::exists("KNACK_TORNADO_CAPTURE_NOW.txt")) {
         std::filesystem::remove("KNACK_TORNADO_CAPTURE_NOW.txt");
         active = true;
         capture_frame = 0;
@@ -918,6 +916,10 @@ void TornadoCapture::RecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 ins
                                  u32 shader_mask, u32 target_mask) {
     std::lock_guard lock(mtx);
     if (!active) return;
+    // Only log known suspect shaders or addresses
+    u32 vs_low = (u32)vs;
+    if (vs_low != 0x292ecf7 && vs_low != 0x29cf6b4 && vs_low != 0x292e009 &&
+        out_addr != 0x2a8ea0000 && out_addr != 0xb41f0000) return;
     if (capture_frame >= CAPTURE_MAX) {
         active = false;
         csv.close();
