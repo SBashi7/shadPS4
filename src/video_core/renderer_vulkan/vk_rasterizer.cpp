@@ -483,25 +483,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         }
     }
 
-    // Log particle color writer 0x292ecf7/0x292ecf9 textures + feedback + real black zero-slot
-    static vk::Image black_image{};
-    static vk::ImageView black_view{};
-    static VmaAllocation black_alloc{};
-    if (!black_image) {
-        vk::ImageCreateInfo ci = {.imageType = vk::ImageType::e2D, .format = vk::Format::eR8G8B8A8Unorm,
-                                   .extent = {1,1,1}, .mipLevels = 1, .arrayLayers = 1,
-                                   .samples = vk::SampleCountFlagBits::e1,
-                                   .usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst};
-        VmaAllocationCreateInfo aci = {.usage = VMA_MEMORY_USAGE_GPU_ONLY};
-        VkImageCreateInfo raw = ci;
-        vmaCreateImage(instance.GetAllocator(), &raw, &aci, (VkImage*)&black_image, &black_alloc, nullptr);
-        vk::ImageViewCreateInfo vi = {.image = black_image, .viewType = vk::ImageViewType::e2D,
-                                       .format = vk::Format::eR8G8B8A8Unorm,
-                                       .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
-        black_view = instance.GetDevice().createImageView(vi);
-        LOG_INFO(Render_Vulkan, "KNACK_BLACK_TEXTURE_CREATED 1x1");
-    }
-
+    // Log particle color writer 0x292ecf7/0x292ecf9 textures + feedback check
     if (regs.vs_program.address == 0x292ecf7 && regs.ps_program.address == 0x292ecf9) {
         const auto& out_img = texture_cache.GetImage(bound_images[0]);
         for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
@@ -511,20 +493,6 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
                      "KNACK_FEEDBACK_SLOT slot={} addr=0x{:016x} fmt={} tile={} same={}",
                      (u32)i, img.info.guest_address, static_cast<u32>(img.info.pixel_format),
                      static_cast<u32>(img.info.tile_mode), same);
-        }
-        // Real black zero-slot0: replace with 1x1 black
-        if (black_view) {
-            for (auto& write : set_writes) {
-                if (write.descriptorType == vk::DescriptorType::eSampledImage &&
-                    write.dstBinding == 0 && write.pImageInfo) {
-                    static vk::DescriptorImageInfo zi;
-                    zi = {.sampler = write.pImageInfo->sampler, .imageView = black_view,
-                           .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-                    write.pImageInfo = &zi;
-                    LOG_INFO(Render_Vulkan, "KNACK_292ECF7_ZERO_SLOT0_APPLIED real_black_1x1");
-                    break;
-                }
-            }
         }
     }
 
