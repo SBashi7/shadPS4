@@ -77,6 +77,7 @@ struct Flags {
     u32 writer_dump_max = 10;
     bool writer_slot2_force_unorm = false;
     bool writer_slot2_force_snorm = false;
+    bool skip_shader_292ecf7 = false;  // Skip VS=0x292ecf7 FS=0x292ecf9 for diagnostic
 
     static Flags LoadFromEnv();
 

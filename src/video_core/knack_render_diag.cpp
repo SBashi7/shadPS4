@@ -74,6 +74,7 @@ Flags Flags::LoadFromEnv() {
     f.writer_fs = 0x029cf6b8;
     f.writer_dump_max = 10;
     f.writer_slot2_force_snorm = false; // DISABLED: breaks menu, doesn't fix particles
+    f.skip_shader_292ecf7 = true; // TEST: skip particle color writer to see effect
 
     return f;
 }

@@ -300,9 +300,19 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
 
     // KNACK WRITER AUDIT
     const auto& wflags = KnackDiag::GetFlags();
+
+    // SKIP shader 0x292ecf7/0x292ecf9 diagnostic
+    if (wflags.skip_shader_292ecf7 &&
+        liverpool->regs.vs_program.address == 0x292ecf7 &&
+        liverpool->regs.ps_program.address == 0x292ecf9) {
+        LOG_INFO(Render_Vulkan, "KNACK_SKIP_292ECF7_APPLIED skipping particle color writer");
+        return; // Skip this draw entirely
+    }
+
     static u32 writer_dump_armed = 0;
     static u32 writer_dump_seq = 0;
     bool is_writer_draw = false;
+
     if (wflags.writer_audit && liverpool->regs.vs_program.address == wflags.writer_vs &&
         liverpool->regs.ps_program.address == wflags.writer_fs) {
         is_writer_draw = true;
@@ -470,6 +480,24 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
             LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_APPLIED all sampled bindings use SNORM");
         } else {
             LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_FAILED reason=forced_view_null");
+        }
+    }
+
+    // Log particle color writer 0x292ecf7/0x292ecf9 textures
+    if (regs.vs_program.address == 0x292ecf7 && regs.ps_program.address == 0x292ecf9) {
+        const auto& pipe_key = pipeline->GetGraphicsKey();
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_PARTICLE_COLOR_WRITER num_tex={} wmask=0x{:x} blend={} rt_fmt={} color_exp=0x{:08x}",
+                 (u32)bound_images.size(), regs.color_target_mask.GetMask(0),
+                 regs.blend_control[0].enable,
+                 static_cast<u32>(pipe_key.color_buffers[0].data_format),
+                 regs.color_export_format.raw);
+        for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
+            const auto& img = texture_cache.GetImage(bound_images[i]);
+            LOG_INFO(Render_Vulkan,
+                     "KNACK_PARTICLE_COLOR_TEX slot={} addr=0x{:016x} size={}x{} fmt={} tile={}",
+                     (u32)i, img.info.guest_address, img.info.size.width, img.info.size.height,
+                     static_cast<u32>(img.info.pixel_format), static_cast<u32>(img.info.tile_mode));
         }
     }
 
