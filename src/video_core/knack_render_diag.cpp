@@ -961,11 +961,7 @@ void TornadoCapture::RecordImageSample(u32 slot, u64 addr, u32 fmt, u32 tile, u3
 }
 
 void TornadoCapture::EndFrame() {
-    if (!active) return;
-    capture_frame++;
-    if (capture_frame % 30 == 0) {
-        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_FRAME frame={}", capture_frame);
-    }
+    // No-op: time-based capture handled in CheckTrigger
 }
 
 u64 TornadoCapture::HashGuest(u64 addr, u32 size) {
