@@ -285,12 +285,13 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     // Track color attachment writes for effect detection
     if (!bound_images.empty()) {
         const auto& img0 = texture_cache.GetImage(bound_images[0]);
+        const auto& pipe_key = pipeline->GetGraphicsKey();
         KnackDiag::VkImageRecordColorWrite(
             img0.info.guest_address, liverpool->regs.vs_program.address,
             liverpool->regs.ps_program.address,
             regs.color_target_mask.GetMask(0),
             regs.blend_control[0].enable != 0,
-            static_cast<u32>(key.color_buffers[0].data_format),
+            static_cast<u32>(pipe_key.color_buffers[0].data_format),
             regs.depth_control.depth_enable,
             regs.depth_control.depth_write_enable,
             regs.color_export_format.raw,
