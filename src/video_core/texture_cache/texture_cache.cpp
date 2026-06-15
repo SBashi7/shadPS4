@@ -869,11 +869,10 @@ vk::ImageView TextureCache::GetForcedView(ImageId image_id, vk::Format forced_fo
     Image& image = slot_images[image_id];
     ImageViewInfo view_info;
     view_info.format = forced_format;
-    view_info.range.aspectMask = vk::ImageAspectFlagBits::eColor;
-    view_info.range.baseMipLevel = 0;
-    view_info.range.levelCount = image.info.resources.levels;
-    view_info.range.baseArrayLayer = 0;
-    view_info.range.layerCount = image.info.resources.layers;
+    view_info.range.base.level = 0;
+    view_info.range.base.layer = 0;
+    view_info.range.extent.levels = image.info.resources.levels;
+    view_info.range.extent.layers = image.info.resources.layers;
     view_info.is_storage = false;
     return image.FindView(view_info).image_view.get();
 }
