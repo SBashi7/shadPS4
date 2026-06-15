@@ -497,13 +497,13 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         const auto& out_img = texture_cache.GetImage(bound_images[0]);
         for (size_t i = 0; i < bound_images.size() && i < 4; ++i) {
             const auto& img = texture_cache.GetImage(bound_images[i]);
-            bool same = (img.image == out_img.image);
+            bool same = (img.GetImage() == out_img.GetImage());
             LOG_INFO(Render_Vulkan,
                      "KNACK_FEEDBACK_SLOT slot={} addr=0x{:016x} size={}x{} fmt={} tile={} "
-                     "vk_image={:016x} output_image={:016x} same_image={}",
+                     "same_vk_image={} has_gs={}",
                      (u32)i, img.info.guest_address, img.info.size.width, img.info.size.height,
                      static_cast<u32>(img.info.pixel_format), static_cast<u32>(img.info.tile_mode),
-                     (u64)(VkImage)img.image, (u64)(VkImage)out_img.image, same);
+                     same, regs.stage_enable.gs_en != 0);
             if (i == 0 && same) {
                 LOG_INFO(Render_Vulkan, "KNACK_FEEDBACK_LOOP_DETECTED slot0_is_output");
             }
