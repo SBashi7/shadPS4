@@ -74,7 +74,9 @@ struct Flags {
     bool writer_audit = false;
     u64 writer_vs = 0x029cf6b4;
     u64 writer_fs = 0x029cf6b8;
-    u32 writer_dump_max = 3;     // Force re-detile before final composite  // Force safe copy for fullscreen frame images       // Dump top N suspect shaders
+    u32 writer_dump_max = 10;
+    bool writer_slot2_force_unorm = false;
+    bool writer_slot2_force_snorm = false;
 
     static Flags LoadFromEnv();
 
