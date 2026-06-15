@@ -912,16 +912,23 @@ TornadoCapture& TornadoCapture::Instance() {
 }
 
 void TornadoCapture::CheckTrigger() {
-    if (active) return;
+    if (active) {
+        // Auto-stop after 10 seconds
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - capture_start).count() >= 10) {
+            active = false;
+            DumpShaderSummary();
+            LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END shaders={}", shader_counts.size());
+        }
+        return;
+    }
     if (std::filesystem::exists("KNACK_TORNADO_CAPTURE_NOW.txt")) {
         std::filesystem::remove("KNACK_TORNADO_CAPTURE_NOW.txt");
         active = true;
-        capture_frame = 0;
+        capture_start = std::chrono::steady_clock::now();
+        shader_counts.clear();
         std::filesystem::create_directories("dumps/knack_tornado_capture");
-        csv.open("dumps/knack_tornado_capture/frames.csv");
-        csv << "frame,draw,vs_hash,fs_hash,gs_hash,cs_hash,num_idx,num_inst,out_addr,"
-               "out_fmt,wmask,blend,depth_en,depth_write,color_exp,shader_mask,target_mask\n";
-        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_BEGIN frames={}", CAPTURE_MAX);
+        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_BEGIN 10sec");
     }
 }
 
