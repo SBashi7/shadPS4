@@ -73,7 +73,7 @@ Flags Flags::LoadFromEnv() {
     f.writer_vs = 0x029cf6b4;
     f.writer_fs = 0x029cf6b8;
     f.writer_dump_max = 10;
-    f.writer_slot2_force_snorm = true; // TEST BUILD: force slot2 SNORM for writer
+    f.writer_slot2_force_snorm = false; // DISABLED: breaks menu, doesn't fix particles
 
     return f;
 }
@@ -761,39 +761,97 @@ bool WatchShouldForceRedetile(u64 addr) {
 
 namespace {
 struct VkImageWriter {
-    const char* writer_type = "unknown"; // color_attachment, compute_storage, copy
+    const char* writer_type = "unknown";
     u64 vs_hash = 0;
     u64 fs_hash = 0;
     u64 cs_hash = 0;
     u32 write_count = 0;
 };
-std::mutex vk_writer_mtx;
-std::map<u64, VkImageWriter> vk_image_writers; // gpu_addr -> last writer
+
+struct WriterHistoryEntry {
+    u64 submit_id;
+    const char* writer_type;
+    u64 vs_hash;
+    u64 fs_hash;
+    u64 cs_hash;
+    u32 num_indices;
+    u32 num_instances;
+    u64 output_addr;
+    bool blend_en;
+    u32 write_mask;
+};
+
+static constexpr u32 HISTORY_SIZE = 50;
+static WriterHistoryEntry g_writer_history[HISTORY_SIZE];
+static u32 g_writer_history_pos = 0;
+static std::mutex g_history_mtx;
+static std::map<u64, VkImageWriter> vk_image_writers; // gpu_addr -> last writer
+
+void AddWriterHistory(u64 submit_id, const char* type, u64 vs, u64 fs, u64 cs,
+                      u32 idx, u32 inst, u64 addr, bool blend, u32 wmask) {
+    std::lock_guard lock(g_history_mtx);
+    auto& e = g_writer_history[g_writer_history_pos % HISTORY_SIZE];
+    e.submit_id = submit_id;
+    e.writer_type = type;
+    e.vs_hash = vs & 0xFFFFFFFF;
+    e.fs_hash = fs & 0xFFFFFFFF;
+    e.cs_hash = cs & 0xFFFFFFFF;
+    e.num_indices = idx;
+    e.num_instances = inst;
+    e.output_addr = addr;
+    e.blend_en = blend;
+    e.write_mask = wmask;
+    g_writer_history_pos++;
+}
+
+void DumpWriterHistory() {
+    std::lock_guard lock(g_history_mtx);
+    u32 start = (g_writer_history_pos > HISTORY_SIZE) ? (g_writer_history_pos - HISTORY_SIZE) : 0;
+    u32 end = g_writer_history_pos;
+    LOG_INFO(Render_Vulkan, "KNACK_FRAME_WRITER_HISTORY_BEGIN total={}", g_writer_history_pos);
+    for (u32 i = start; i < end; ++i) {
+        const auto& e = g_writer_history[i % HISTORY_SIZE];
+        LOG_INFO(Render_Vulkan,
+                 "KNACK_FRAME_WRITER_HISTORY_ENTRY seq={} submit={} type={} "
+                 "vs=0x{:08x} fs=0x{:08x} cs=0x{:08x} "
+                 "num_idx={} num_inst={} addr=0x{:016x} blend={} wmask=0x{:x}",
+                 i, e.submit_id, e.writer_type, (u32)e.vs_hash, (u32)e.fs_hash, (u32)e.cs_hash,
+                 e.num_indices, e.num_instances, e.output_addr, e.blend_en, e.write_mask);
+    }
+    LOG_INFO(Render_Vulkan, "KNACK_FRAME_WRITER_HISTORY_END");
+}
 } // namespace
 
 void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash) {
-    std::lock_guard lock(vk_writer_mtx);
+    std::lock_guard lock(g_history_mtx);
     auto& w = vk_image_writers[gpu_addr];
     w.writer_type = "color_attachment";
     w.vs_hash = vs_hash;
     w.fs_hash = fs_hash;
     w.write_count++;
+    if (gpu_addr == 0x2a8ea0000) {
+        AddWriterHistory(g_submit_id.load(), "color_attachment", vs_hash, fs_hash, 0, 6, 1,
+                         gpu_addr, true, 0xf);
+    }
     LOG_INFO(Render_Vulkan, "KNACK_VK_IMAGE_COLOR_WRITE addr=0x{:016x} vs=0x{:08x} fs=0x{:08x} count={}",
              gpu_addr, (u32)vs_hash, (u32)fs_hash, w.write_count);
 }
 
 void VkImageRecordComputeWrite(u64 gpu_addr, u64 cs_hash) {
-    std::lock_guard lock(vk_writer_mtx);
+    std::lock_guard lock(g_history_mtx);
     auto& w = vk_image_writers[gpu_addr];
     w.writer_type = "compute_storage";
     w.cs_hash = cs_hash;
     w.write_count++;
+    if (gpu_addr == 0x2a8ea0000) {
+        AddWriterHistory(g_submit_id.load(), "compute_storage", 0, 0, cs_hash, 0, 0, gpu_addr, false, 0);
+    }
     LOG_INFO(Render_Vulkan, "KNACK_VK_IMAGE_COMPUTE_WRITE addr=0x{:016x} cs=0x{:08x} count={}",
              gpu_addr, (u32)cs_hash, w.write_count);
 }
 
 void VkImageRecordFinalSample(u64 gpu_addr) {
-    std::lock_guard lock(vk_writer_mtx);
+    std::lock_guard lock(g_history_mtx);
     auto it = vk_image_writers.find(gpu_addr);
     if (it != vk_image_writers.end()) {
         LOG_INFO(Render_Vulkan,
@@ -804,6 +862,8 @@ void VkImageRecordFinalSample(u64 gpu_addr) {
     } else {
         LOG_INFO(Render_Vulkan, "KNACK_FINAL_IMAGE_UNKNOWN_WRITER addr=0x{:016x}", gpu_addr);
     }
+    // Dump writer history for frame image
+    DumpWriterHistory();
 }
 
 const char* VkImageGetLastWriter(u64 gpu_addr) {
