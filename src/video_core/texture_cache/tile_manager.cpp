@@ -180,6 +180,13 @@ TileManager::Result TileManager::DetileImage(vk::Buffer in_buffer, u32 in_offset
         return {in_buffer, in_offset};
     }
 
+    // KNACK: force linear bypass for suspect tile14 textures
+    if (info.guest_address == 0x2a8ea0000 || info.guest_address == 0xb41f0000) {
+        LOG_INFO(Render_Vulkan, "KNACK_DETILE_BYPASS addr=0x{:016x} tile={} fmt={} — treating as linear",
+                 info.guest_address, u32(info.tile_mode), u32(info.pixel_format));
+        return {in_buffer, in_offset};
+    }
+
     LOG_INFO(Render_Vulkan,
              "KNACK_TILE_DETILE addr=0x{:016x} size={}x{} tile={} array={} fmt={} bpp={} alt={}",
              info.guest_address, info.size.width, info.size.height, u32(info.tile_mode),
@@ -341,6 +348,17 @@ void TileManager::TileImage(Image& in_image, std::span<vk::BufferImageCopy> buff
                             vk::Buffer out_buffer, u32 out_offset, u32 copy_size) {
     const auto& info = in_image.info;
     if (!info.props.is_tiled) {
+        for (auto& copy : buffer_copies) {
+            copy.bufferOffset += out_offset;
+        }
+        in_image.Download(buffer_copies, out_buffer, out_offset, copy_size);
+        return;
+    }
+
+    // KNACK: force linear bypass for suspect tile14 textures
+    if (info.guest_address == 0x2a8ea0000 || info.guest_address == 0xb41f0000) {
+        LOG_INFO(Render_Vulkan, "KNACK_TILE_BYPASS addr=0x{:016x} — skip tiling, treat as linear",
+                 info.guest_address);
         for (auto& copy : buffer_copies) {
             copy.bufferOffset += out_offset;
         }
