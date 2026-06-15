@@ -357,7 +357,9 @@ void WatchRecordWrite(u64 addr, const char* source);
 
 // ─── Vulkan Image Writer Tracking ──────────────────────────────────
 
-void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash);
+void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash,
+                             u32 wmask, bool blend, u32 rt_fmt, u32 depth_en,
+                             u32 depth_write, u32 color_export, u32 num_tex);
 void VkImageRecordComputeWrite(u64 gpu_addr, u64 cs_hash);
 void VkImageRecordFinalSample(u64 gpu_addr);
 const char* VkImageGetLastWriter(u64 gpu_addr);

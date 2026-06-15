@@ -779,6 +779,11 @@ struct WriterHistoryEntry {
     u64 output_addr;
     bool blend_en;
     u32 write_mask;
+    u32 rt_fmt;
+    u32 depth_en;
+    u32 depth_write;
+    u32 color_export;
+    u32 num_tex;
 };
 
 static constexpr u32 HISTORY_SIZE = 50;
@@ -788,7 +793,9 @@ static std::mutex g_history_mtx;
 static std::map<u64, VkImageWriter> vk_image_writers; // gpu_addr -> last writer
 
 void AddWriterHistory(u64 submit_id, const char* type, u64 vs, u64 fs, u64 cs,
-                      u32 idx, u32 inst, u64 addr, bool blend, u32 wmask) {
+                      u32 idx, u32 inst, u64 addr, bool blend, u32 wmask,
+                      u32 rt_fmt, u32 depth_en, u32 depth_write, u32 color_export,
+                      u32 num_tex) {
     auto& e = g_writer_history[g_writer_history_pos % HISTORY_SIZE];
     e.submit_id = submit_id;
     e.writer_type = type;
@@ -800,6 +807,11 @@ void AddWriterHistory(u64 submit_id, const char* type, u64 vs, u64 fs, u64 cs,
     e.output_addr = addr;
     e.blend_en = blend;
     e.write_mask = wmask;
+    e.rt_fmt = rt_fmt;
+    e.depth_en = depth_en;
+    e.depth_write = depth_write;
+    e.color_export = color_export;
+    e.num_tex = num_tex;
     g_writer_history_pos++;
 }
 
@@ -812,23 +824,28 @@ void DumpWriterHistory() {
         LOG_INFO(Render_Vulkan,
                  "KNACK_FRAME_WRITER_HISTORY_ENTRY seq={} submit={} type={} "
                  "vs=0x{:08x} fs=0x{:08x} cs=0x{:08x} "
-                 "num_idx={} num_inst={} addr=0x{:016x} blend={} wmask=0x{:x}",
+                 "idx={} inst={} addr=0x{:016x} blend={} wmask=0x{:x} "
+                 "rt_fmt={} depth_en={} depth_write={} color_export=0x{:08x} num_tex={}",
                  i, e.submit_id, e.writer_type, (u32)e.vs_hash, (u32)e.fs_hash, (u32)e.cs_hash,
-                 e.num_indices, e.num_instances, e.output_addr, e.blend_en, e.write_mask);
+                 e.num_indices, e.num_instances, e.output_addr, e.blend_en, e.write_mask,
+                 e.rt_fmt, e.depth_en, e.depth_write, e.color_export, e.num_tex);
     }
     LOG_INFO(Render_Vulkan, "KNACK_FRAME_WRITER_HISTORY_END");
 }
 } // namespace
 
-void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash) {
+void VkImageRecordColorWrite(u64 gpu_addr, u64 vs_hash, u64 fs_hash,
+                             u32 wmask, bool blend, u32 rt_fmt, u32 depth_en,
+                             u32 depth_write, u32 color_export, u32 num_tex) {
     auto& w = vk_image_writers[gpu_addr];
     w.writer_type = "color_attachment";
     w.vs_hash = vs_hash;
     w.fs_hash = fs_hash;
     w.write_count++;
     if (gpu_addr == 0x2a8ea0000) {
-        AddWriterHistory(g_submit_id.load(), "color_attachment", vs_hash, fs_hash, 0, 6, 1,
-                         gpu_addr, true, 0xf);
+        AddWriterHistory(g_submit_id.load(), "color_attachment", vs_hash, fs_hash, 0,
+                         6, 1, gpu_addr, blend, wmask, rt_fmt, depth_en, depth_write,
+                         color_export, num_tex);
     }
     LOG_INFO(Render_Vulkan, "KNACK_VK_IMAGE_COLOR_WRITE addr=0x{:016x} vs=0x{:08x} fs=0x{:08x} count={}",
              gpu_addr, (u32)vs_hash, (u32)fs_hash, w.write_count);
