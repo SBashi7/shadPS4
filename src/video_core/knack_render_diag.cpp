@@ -934,30 +934,25 @@ void TornadoCapture::RecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 ins
     if (!active) return;
     if (capture_frame >= CAPTURE_MAX) {
         active = false;
-        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END frames={} shaders={}",
-                 capture_frame, shader_counts.size());
-        // Write summary immediately (don't wait for atexit)
-        std::ofstream f("dumps/knack_tornado_capture/shader_summary.csv");
-        f << "vs_hash,fs_hash,count\n";
-        for (auto& [pair, count] : shader_counts) {
-            f << fmt::format("0x{:08x}", pair.first) << ","
-              << fmt::format("0x{:08x}", pair.second) << "," << count << "\n";
-        }
-        f.close();
+        DumpShaderSummary();
+        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END frames={}", capture_frame);
         return;
     }
     total_frames++;
     shader_counts[{vs & 0xFFFFFFFF, fs & 0xFFFFFFFF}]++;
-    // Write every 25th draw to compact CSV
-    if (total_frames % 25 == 0 && csv.is_open()) {
-        csv << capture_frame << "," << total_frames << ",0x" << fmt::format("{:08x}", (u32)vs)
-            << ",0x" << fmt::format("{:08x}", (u32)fs) << ",0x" << fmt::format("{:08x}", (u32)gs)
-            << ",0x" << fmt::format("{:08x}", (u32)cs) << "," << idx << "," << inst
-            << ",0x" << fmt::format("{:016x}", out_addr) << "," << out_fmt << "," << wmask
-            << "," << blend << "," << depth_en << "," << depth_write
-            << ",0x" << fmt::format("{:08x}", color_exp) << "\n";
-        csv.flush();
+    capture_frame++;
+    // Write checkpoint every 30 frames
+    if (capture_frame % 30 == 0) DumpShaderSummary();
+}
+
+void TornadoCapture::DumpShaderSummary() {
+    std::ofstream f("dumps/knack_tornado_capture/shader_summary.csv");
+    f << "vs_hash,fs_hash,count\n";
+    for (auto& [pair, count] : shader_counts) {
+        f << fmt::format("0x{:08x}", pair.first) << ","
+          << fmt::format("0x{:08x}", pair.second) << "," << count << "\n";
     }
+    f.close();
 }
 
 void TornadoCapture::RecordImageSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,

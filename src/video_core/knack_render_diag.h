@@ -391,9 +391,10 @@ private:
     bool active = false;
     u32 capture_frame = 0;
     u32 total_frames = 0;
-    static constexpr u32 CAPTURE_MAX = 180;
+    static constexpr u32 CAPTURE_MAX = 60; // 60 frames ≈ 3 seconds
     std::ofstream csv;
     std::map<std::pair<u32, u32>, u32> shader_counts;
+    void DumpShaderSummary();
 };
 
 void TornadoRecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 inst,
