@@ -73,6 +73,7 @@ Flags Flags::LoadFromEnv() {
     f.writer_vs = 0x029cf6b4;
     f.writer_fs = 0x029cf6b8;
     f.writer_dump_max = 10;
+    f.writer_slot2_force_snorm = true; // TEST BUILD: force slot2 SNORM for writer
 
     return f;
 }

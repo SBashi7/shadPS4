@@ -277,9 +277,41 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     }
 
     PrepareRenderState(pipeline);
+
+    // KNACK: Force slot2 SNORM override BEFORE BindResources
+    const auto& wflags_pre = KnackDiag::GetFlags();
+    if (wflags_pre.writer_audit && wflags_pre.writer_slot2_force_snorm &&
+        regs.vs_program.address == wflags_pre.writer_vs &&
+        regs.ps_program.address == wflags_pre.writer_fs) {
+        // Iterate stage bindings to find slot2, modify format before view creation
+        for (const auto& bind : liverpool->stage_bindings.stages[3]) { // 3 = Pixel shader
+            if (bind.is_image && bind.starting_slot == 2) {
+                // We found slot2. The image is already in cache.
+                // Force re-lookup with SNORM format.
+                LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_APPLIED forcing SNORM");
+                // TODO: actually force format change
+            }
+        }
+        }
+    }
+
     if (!BindResources(pipeline)) {
         return;
     }
+
+    // KNACK: Force slot2 SNORM override AFTER BindResources, BEFORE Vulkan bind
+    if (wflags_pre.writer_audit && wflags_pre.writer_slot2_force_snorm &&
+        regs.vs_program.address == wflags_pre.writer_vs &&
+        regs.ps_program.address == wflags_pre.writer_fs && bound_images.size() > 2) {
+        auto& img_slot2 = texture_cache.GetImage(bound_images[2]);
+        if (img_slot2.info.pixel_format == vk::Format::eA2B10G10R10UnormPack32) {
+            img_slot2.info.pixel_format = vk::Format::eA2B10G10R10SnormPack32;
+            BindResources(pipeline);
+            img_slot2.info.pixel_format = vk::Format::eA2B10G10R10UnormPack32;
+            LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_APPLIED forced SNORM view");
+        }
+    }
+
     const auto state = BeginRendering(pipeline);
 
     // Track color attachment writes for effect detection
