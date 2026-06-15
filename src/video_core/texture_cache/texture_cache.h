@@ -91,6 +91,9 @@ public:
     // KNACK: force full re-upload from guest memory (triggers DetileImage for tiled images)
     void ForceUploadImage(ImageId image_id);
 
+    // KNACK: create forced-format image view (for slot2 SNORM/UNORM test)
+    [[nodiscard]] vk::ImageView GetForcedView(ImageId image_id, vk::Format forced_format);
+
     TileManager& GetTileManager() noexcept {
         return tile_manager;
     }

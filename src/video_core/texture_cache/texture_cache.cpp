@@ -731,7 +731,18 @@ ImageView& TextureCache::FindDepthTarget(ImageId image_id, const ImageDesc& desc
                              [&](ImageId image_id, Image& image) {
                                  if (image.info.guest_address == desc.info.stencil_addr) {
                                      stencil_id = image_id;
-                                 }
+}
+
+vk::ImageView TextureCache::GetForcedView(ImageId image_id, vk::Format forced_format) {
+    Image& image = slot_images[image_id];
+    // Build ImageViewInfo based on the image's current info but with forced format
+    ImageViewInfo view_info;
+    view_info.format = forced_format;
+    view_info.range = {vk::ImageAspectFlagBits::eColor, 0, image.info.resources.levels, 0, image.info.resources.layers};
+    view_info.is_storage = false;
+    // Create or find cached view with forced format
+    return image.FindView(view_info).image_view.get();
+}
                              });
         if (!stencil_id) {
             ImageInfo info{};

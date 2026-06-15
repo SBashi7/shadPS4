@@ -439,12 +439,28 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         buffer_cache.BindIndexBuffer(index_offset);
     }
 
-    // KNACK: Force slot2 SNORM override - modify descriptor writes before Vulkan bind
+    // KNACK: Force slot2 SNORM override - replace actual descriptor imageView
     const auto& wflags_s2 = KnackDiag::GetFlags();
     if (wflags_s2.writer_audit && wflags_s2.writer_slot2_force_snorm &&
         regs.vs_program.address == wflags_s2.writer_vs &&
         regs.ps_program.address == wflags_s2.writer_fs && bound_images.size() > 2) {
-        LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_APPLIED forced SNORM");
+        // Get forced SNORM view from texture cache
+        vk::ImageView forced_view =
+            texture_cache.GetForcedView(bound_images[2], vk::Format::eA2B10G10R10SnormPack32);
+        if (forced_view) {
+            // Replace this view in set_writes for binding slot 2
+            for (auto& write : set_writes) {
+                if (write.descriptorType == vk::DescriptorType::eSampledImage &&
+                    write.dstBinding == 2) {
+                    write.pImageInfo->imageView = forced_view;
+                    LOG_INFO(Render_Vulkan,
+                             "KNACK_SLOT2_OVERRIDE_APPLIED forced SNORM view binding=2");
+                    break;
+                }
+            }
+        } else {
+            LOG_INFO(Render_Vulkan, "KNACK_SLOT2_OVERRIDE_FAILED reason=forced_view_null");
+        }
     }
 
     pipeline->BindResources(set_writes, buffer_barriers, push_data);
