@@ -426,6 +426,7 @@ public:
     const char* GetModeStr(ShaderTestMode m) const;
 
     std::vector<RuleHit> rule_hits;
+    void LogRuleHit(u64 vs, u64 fs, ShaderTestMode mode);
 
 private:
     std::mutex mtx;
