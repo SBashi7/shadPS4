@@ -5,8 +5,15 @@
 #include "common/memory_patcher.h"
 #include "shader_recompiler/backend/spirv/emit_spirv_instructions.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
+#include "video_core/knack_render_diag.h"
 
 namespace Shader::Backend::SPIRV {
+
+static bool IsShaderTestBlack(const EmitContext& ctx) {
+    // Match on FS hash (0 for VS = wildcard)
+    auto mode = KnackDiag::ShaderTestGetMode(0, ctx.info.pgm_hash);
+    return mode == KnackDiag::ShaderTestMode::Black;
+}
 
 static bool IsUfc3ColorGradingWorkaround(const EmitContext& ctx, u32 handle) {
     return ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0xe115097cULL &&
@@ -94,6 +101,10 @@ Id EmitImageSampleRaw(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address1,
 
 Id EmitImageSampleImplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id bias,
                               const IR::Value& offset) {
+    if (IsShaderTestBlack(ctx)) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     // KNACK: zero slot1 samples for FS=0x292ecf9
     if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
         (handle & 0xFFFF) == 1) {
@@ -119,6 +130,10 @@ Id EmitImageSampleImplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id c
 
 Id EmitImageSampleExplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id lod,
                               const IR::Value& offset) {
+    if (IsShaderTestBlack(ctx)) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
         (handle & 0xFFFF) == 1) {
         const Id zero = ctx.ConstF32(0.0f);
@@ -185,6 +200,10 @@ Id EmitImageSampleDrefExplicitLod(EmitContext& ctx, IR::Inst* inst, u32 handle, 
 
 Id EmitImageGather(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords,
                    const IR::Value& offset) {
+    if (IsShaderTestBlack(ctx)) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
         (handle & 0xFFFF) == 1) {
         const Id zero = ctx.ConstF32(0.0f);
@@ -254,6 +273,10 @@ Id EmitImageQueryLod(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords) {
 
 Id EmitImageGradient(EmitContext& ctx, IR::Inst* inst, u32 handle, Id coords, Id derivatives_dx,
                      Id derivatives_dy, const IR::Value& offset, const IR::Value& lod_clamp) {
+    if (IsShaderTestBlack(ctx)) {
+        const Id zero = ctx.ConstF32(0.0f);
+        return ctx.OpCompositeConstruct(ctx.F32[4], zero, zero, zero, zero);
+    }
     if (ctx.stage == Stage::Fragment && ctx.info.pgm_hash == 0x292ecf9 &&
         (handle & 0xFFFF) == 1) {
         const Id zero = ctx.ConstF32(0.0f);

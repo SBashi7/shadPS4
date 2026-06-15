@@ -330,6 +330,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
     // Tornado capture trigger check
     KnackDiag::TornadoCapture::Instance().CheckTrigger();
+    // Shader test system reload
+    KnackDiag::ShaderTestSystem::Instance().CheckReload();
 
     LOG_INFO(Lib_GnmDriver,
              "KNACK_DIAG_CHECK texture_audit={} effect_diag={} any_effect={} render_diag={}",

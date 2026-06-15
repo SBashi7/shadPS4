@@ -991,4 +991,71 @@ void TornadoRecordSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,
 }
 void TornadoEndFrame() { TornadoCapture::Instance().EndFrame(); }
 
+// ─── Runtime Shader Test System ─────────────────────────────────────
+
+ShaderTestSystem& ShaderTestSystem::Instance() {
+    static ShaderTestSystem sts;
+    return sts;
+}
+
+void ShaderTestSystem::CheckReload() {
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_check).count();
+    if (elapsed < 1) return;
+    last_check = now;
+
+    std::lock_guard lock(mtx);
+    std::ifstream f("knack_shader_test.txt");
+    if (!f.is_open()) return;
+
+    rules.clear();
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream iss(line);
+        std::string cmd;
+        u64 vs = 0, fs = 0;
+        iss >> cmd >> std::hex >> vs >> fs;
+        ShaderTestMode mode = ShaderTestMode::Noop;
+        if (cmd == "skip") mode = ShaderTestMode::Skip;
+        else if (cmd == "black") mode = ShaderTestMode::Black;
+        else if (cmd == "alpha0") mode = ShaderTestMode::Alpha0;
+        else if (cmd == "noop") { /* clear all */ continue; }
+        if (mode != ShaderTestMode::Noop) {
+            rules.push_back({vs, fs, mode});
+            LOG_INFO(Render_Vulkan, "KNACK_SHADER_TEST_ACTIVE mode={} vs=0x{:08x} fs=0x{:08x}",
+                     GetModeStr(mode), (u32)vs, (u32)fs);
+        }
+    }
+    f.close();
+}
+
+ShaderTestMode ShaderTestSystem::GetMode(u64 vs, u64 fs) const {
+    u32 vs32 = vs & 0xFFFFFFFF, fs32 = fs & 0xFFFFFFFF;
+    for (const auto& r : rules) {
+        bool vs_match = (r.vs_hash == 0 || r.vs_hash == vs32);
+        bool fs_match = (r.fs_hash == 0 || r.fs_hash == fs32);
+        // Both must match (or wildcard 0), and at least one must be non-zero
+        if (vs_match && fs_match && (r.vs_hash != 0 || r.fs_hash != 0))
+            return r.mode;
+    }
+    return ShaderTestMode::Noop;
+}
+
+const char* ShaderTestSystem::GetModeStr(ShaderTestMode m) const {
+    switch (m) {
+    case ShaderTestMode::Skip: return "skip";
+    case ShaderTestMode::Black: return "black";
+    case ShaderTestMode::Alpha0: return "alpha0";
+    default: return "noop";
+    }
+}
+
+bool ShaderTestShouldSkip(u64 vs, u64 fs) {
+    return ShaderTestSystem::Instance().GetMode(vs, fs) == ShaderTestMode::Skip;
+}
+ShaderTestMode ShaderTestGetMode(u64 vs, u64 fs) {
+    return ShaderTestSystem::Instance().GetMode(vs, fs);
+}
+
 } // namespace KnackDiag

@@ -401,7 +401,32 @@ void TornadoRecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 inst,
                        u32 shader_mask, u32 target_mask);
 void TornadoRecordSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,
                          bool same_out, const char* writer);
-void TornadoEndFrame();
+// ─── Runtime Shader Test System ─────────────────────────────────────
+
+enum class ShaderTestMode : u8 { Noop, Skip, Black, Alpha0 };
+
+struct ShaderTestRule {
+    u64 vs_hash;
+    u64 fs_hash;
+    ShaderTestMode mode;
+};
+
+class ShaderTestSystem {
+public:
+    static ShaderTestSystem& Instance();
+    void CheckReload(); // Re-read knack_shader_test.txt if changed
+    ShaderTestMode GetMode(u64 vs, u64 fs) const;
+    const char* GetModeStr(ShaderTestMode m) const;
+
+private:
+    std::mutex mtx;
+    std::vector<ShaderTestRule> rules;
+    std::chrono::steady_clock::time_point last_check;
+};
+
+// Called from vk_rasterizer to check if draw should be skipped
+bool ShaderTestShouldSkip(u64 vs, u64 fs);
+ShaderTestMode ShaderTestGetMode(u64 vs, u64 fs);
 bool WatchShouldForceRedetile(u64 addr);
 
 } // namespace KnackDiag
