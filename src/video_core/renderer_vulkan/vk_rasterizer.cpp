@@ -264,15 +264,6 @@ static void WriteA2B10G10R10Bmp(const std::string& path, const u8* src, u32 pitc
 void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     RENDERER_TRACE;
 
-    // Shader test system: skip/black/alpha0
-    ShaderTestSystem::Instance().CheckReload();
-    ShaderTestMode stm = ShaderTestGetMode(regs.vs_program.address, regs.ps_program.address);
-    if (stm == ShaderTestMode::Skip) {
-        LOG_INFO(Render_Vulkan, "KNACK_SHADER_TEST_SKIP_APPLIED vs=0x{:08x} fs=0x{:08x}",
-                 (u32)regs.vs_program.address, (u32)regs.ps_program.address);
-        return;
-    }
-
     scheduler.PopPendingOperations();
 
     if (!FilterDraw()) {
@@ -280,6 +271,17 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     }
 
     const auto& regs = liverpool->regs;
+
+    // Shader test system: skip
+    KnackDiag::ShaderTestSystem::Instance().CheckReload();
+    KnackDiag::ShaderTestMode stm = KnackDiag::ShaderTestGetMode(
+        regs.vs_program.address, regs.ps_program.address);
+    if (stm == KnackDiag::ShaderTestMode::Skip) {
+        LOG_INFO(Render_Vulkan, "KNACK_SHADER_TEST_SKIP_APPLIED vs=0x{:08x} fs=0x{:08x}",
+                 (u32)regs.vs_program.address, (u32)regs.ps_program.address);
+        return;
+    }
+
     const GraphicsPipeline* pipeline = pipeline_cache.GetGraphicsPipeline();
     if (!pipeline) {
         return;
