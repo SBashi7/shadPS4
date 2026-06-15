@@ -914,25 +914,22 @@ void TornadoCapture::RecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 ins
                                  u64 out_addr, u32 out_fmt, u32 wmask, bool blend,
                                  u32 depth_en, u32 depth_write, u32 color_exp,
                                  u32 shader_mask, u32 target_mask) {
-    std::lock_guard lock(mtx);
     if (!active) return;
-    // Only log known suspect shaders or addresses
-    u32 vs_low = (u32)vs;
-    if (vs_low != 0x292ecf7 && vs_low != 0x29cf6b4 && vs_low != 0x292e009 &&
-        out_addr != 0x2a8ea0000 && out_addr != 0xb41f0000) return;
     if (capture_frame >= CAPTURE_MAX) {
         active = false;
         csv.close();
-        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END total_frames={}", capture_frame);
+        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END frames={}", capture_frame);
         return;
     }
+    total_frames++;
+    // Write ALL draws — discovery mode, no filter
     csv << capture_frame << "," << total_frames << ",0x" << fmt::format("{:08x}", (u32)vs)
         << ",0x" << fmt::format("{:08x}", (u32)fs) << ",0x" << fmt::format("{:08x}", (u32)gs)
-        << ",0x" << fmt::format("{:08x}", (u32)cs) << "," << idx << "," << inst << ",0x"
-        << fmt::format("{:016x}", out_addr) << "," << out_fmt << "," << wmask << "," << blend
-        << "," << depth_en << "," << depth_write << ",0x" << fmt::format("{:08x}", color_exp)
-        << ",0x" << fmt::format("{:02x}", shader_mask) << ",0x" << fmt::format("{:02x}", target_mask)
-        << "\n";
+        << ",0x" << fmt::format("{:08x}", (u32)cs) << "," << idx << "," << inst
+        << ",0x" << fmt::format("{:016x}", out_addr) << "," << out_fmt << "," << wmask
+        << "," << blend << "," << depth_en << "," << depth_write
+        << ",0x" << fmt::format("{:08x}", color_exp) << ",0x" << fmt::format("{:02x}", shader_mask)
+        << ",0x" << fmt::format("{:02x}", target_mask) << "\n";
     csv.flush();
 }
 
