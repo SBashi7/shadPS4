@@ -432,7 +432,6 @@ private:
     std::mutex mtx;
     std::vector<ShaderTestRule> rules;
     std::chrono::steady_clock::time_point last_check;
-    void LogRuleHit(u64 vs, u64 fs, ShaderTestMode mode);
 };
 
 // Called from vk_rasterizer to check if draw should be skipped
