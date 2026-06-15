@@ -857,7 +857,8 @@ void VkImageRecordComputeWrite(u64 gpu_addr, u64 cs_hash) {
     w.cs_hash = cs_hash;
     w.write_count++;
     if (gpu_addr == 0x2a8ea0000) {
-        AddWriterHistory(g_submit_id.load(), "compute_storage", 0, 0, cs_hash, 0, 0, gpu_addr, false, 0);
+        AddWriterHistory(g_submit_id.load(), "compute_storage", 0, 0, cs_hash,
+                         0, 0, gpu_addr, false, 0, 0, 0, 0, 0, 0);
     }
     LOG_INFO(Render_Vulkan, "KNACK_VK_IMAGE_COMPUTE_WRITE addr=0x{:016x} cs=0x{:08x} count={}",
              gpu_addr, (u32)cs_hash, w.write_count);
