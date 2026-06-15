@@ -78,6 +78,23 @@ Flags Flags::LoadFromEnv() {
     f.zero_slot_292ecf7 = -1;
     f.tornado_capture = true; // HARDCODE: tornado capture ON
 
+    // Register rule hits dump on exit
+    static bool rules_exit = false;
+    if (!rules_exit) {
+        rules_exit = true;
+        std::atexit([] {
+            auto& sts = ShaderTestSystem::Instance();
+            std::filesystem::create_directories("dumps/knack_shader_test");
+            std::ofstream f("dumps/knack_shader_test/applied_rules.csv");
+            f << "vs_hash,fs_hash,mode,count\n";
+            for (auto& h : sts.rule_hits) {
+                f << fmt::format("0x{:08x}", (u32)h.vs) << "," << fmt::format("0x{:08x}", (u32)h.fs)
+                  << "," << sts.GetModeStr(h.mode) << "," << h.count << "\n";
+            }
+            f.close();
+        });
+    }
+
     return f;
 }
 
@@ -917,20 +934,22 @@ void TornadoCapture::RecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 ins
     if (!active) return;
     if (capture_frame >= CAPTURE_MAX) {
         active = false;
-        csv.close();
-        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END frames={}", capture_frame);
+        LOG_INFO(Render_Vulkan, "KNACK_TORNADO_CAPTURE_END frames={} unique_shaders={}",
+                 capture_frame, shader_counts.size());
+        std::ofstream f("dumps/knack_tornado_capture/shader_summary.csv");
+        f << "vs_hash,fs_hash,gs_hash,cs_hash,count\n";
+        for (auto& [pair, count] : shader_counts) {
+            f << fmt::format("0x{:08x}", pair.first) << "," << fmt::format("0x{:08x}", pair.second)
+              << ",0x" << fmt::format("{:08x}", (u32)gs) << ",0x" << fmt::format("{:08x}", (u32)cs)
+              << "," << count << "\n";
+        }
+        f.close();
+        shader_counts.clear();
         return;
     }
     total_frames++;
-    // Write ALL draws — discovery mode, no filter
-    csv << capture_frame << "," << total_frames << ",0x" << fmt::format("{:08x}", (u32)vs)
-        << ",0x" << fmt::format("{:08x}", (u32)fs) << ",0x" << fmt::format("{:08x}", (u32)gs)
-        << ",0x" << fmt::format("{:08x}", (u32)cs) << "," << idx << "," << inst
-        << ",0x" << fmt::format("{:016x}", out_addr) << "," << out_fmt << "," << wmask
-        << "," << blend << "," << depth_en << "," << depth_write
-        << ",0x" << fmt::format("{:08x}", color_exp) << ",0x" << fmt::format("{:02x}", shader_mask)
-        << ",0x" << fmt::format("{:02x}", target_mask) << "\n";
-    csv.flush();
+    // Count shader pairs (in-memory, no disk I/O per draw)
+    shader_counts[{vs & 0xFFFFFFFF, fs & 0xFFFFFFFF}]++;
 }
 
 void TornadoCapture::RecordImageSample(u32 slot, u64 addr, u32 fmt, u32 tile, u32 w, u32 h,
@@ -1051,8 +1070,20 @@ const char* ShaderTestSystem::GetModeStr(ShaderTestMode m) const {
     }
 }
 
+void ShaderTestSystem::LogRuleHit(u64 vs, u64 fs, ShaderTestMode mode) {
+    for (auto& h : rule_hits) {
+        if (h.vs == vs && h.fs == fs && h.mode == mode) { h.count++; return; }
+    }
+    rule_hits.push_back({vs, fs, mode, 1});
+}
+
 bool ShaderTestShouldSkip(u64 vs, u64 fs) {
-    return ShaderTestSystem::Instance().GetMode(vs, fs) == ShaderTestMode::Skip;
+    auto mode = ShaderTestSystem::Instance().GetMode(vs, fs);
+    if (mode == ShaderTestMode::Skip) {
+        ShaderTestSystem::Instance().LogRuleHit(vs, fs, mode);
+        return true;
+    }
+    return false;
 }
 ShaderTestMode ShaderTestGetMode(u64 vs, u64 fs) {
     return ShaderTestSystem::Instance().GetMode(vs, fs);

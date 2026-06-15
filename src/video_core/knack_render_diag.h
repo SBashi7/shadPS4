@@ -393,6 +393,7 @@ private:
     u32 total_frames = 0;
     static constexpr u32 CAPTURE_MAX = 180;
     std::ofstream csv;
+    std::map<std::pair<u32, u32>, u32> shader_counts;
 };
 
 void TornadoRecordDraw(u64 vs, u64 fs, u64 gs, u64 cs, u32 idx, u32 inst,
@@ -413,15 +414,24 @@ struct ShaderTestRule {
 
 class ShaderTestSystem {
 public:
+    struct RuleHit {
+        u64 vs, fs;
+        ShaderTestMode mode;
+        u32 count = 0;
+    };
+
     static ShaderTestSystem& Instance();
-    void CheckReload(); // Re-read knack_shader_test.txt if changed
+    void CheckReload();
     ShaderTestMode GetMode(u64 vs, u64 fs) const;
     const char* GetModeStr(ShaderTestMode m) const;
+
+    std::vector<RuleHit> rule_hits;
 
 private:
     std::mutex mtx;
     std::vector<ShaderTestRule> rules;
     std::chrono::steady_clock::time_point last_check;
+    void LogRuleHit(u64 vs, u64 fs, ShaderTestMode mode);
 };
 
 // Called from vk_rasterizer to check if draw should be skipped
