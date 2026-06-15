@@ -732,17 +732,6 @@ ImageView& TextureCache::FindDepthTarget(ImageId image_id, const ImageDesc& desc
                                  if (image.info.guest_address == desc.info.stencil_addr) {
                                      stencil_id = image_id;
 }
-
-vk::ImageView TextureCache::GetForcedView(ImageId image_id, vk::Format forced_format) {
-    Image& image = slot_images[image_id];
-    // Build ImageViewInfo based on the image's current info but with forced format
-    ImageViewInfo view_info;
-    view_info.format = forced_format;
-    view_info.range = {vk::ImageAspectFlagBits::eColor, 0, image.info.resources.levels, 0, image.info.resources.layers};
-    view_info.is_storage = false;
-    // Create or find cached view with forced format
-    return image.FindView(view_info).image_view.get();
-}
                              });
         if (!stencil_id) {
             ImageInfo info{};
@@ -880,7 +869,11 @@ vk::ImageView TextureCache::GetForcedView(ImageId image_id, vk::Format forced_fo
     Image& image = slot_images[image_id];
     ImageViewInfo view_info;
     view_info.format = forced_format;
-    view_info.range = {vk::ImageAspectFlagBits::eColor, 0, image.info.resources.levels, 0, image.info.resources.layers};
+    view_info.range.aspectMask = vk::ImageAspectFlagBits::eColor;
+    view_info.range.baseMipLevel = 0;
+    view_info.range.levelCount = image.info.resources.levels;
+    view_info.range.baseArrayLayer = 0;
+    view_info.range.layerCount = image.info.resources.layers;
     view_info.is_storage = false;
     return image.FindView(view_info).image_view.get();
 }
