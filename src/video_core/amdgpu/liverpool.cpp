@@ -333,6 +333,12 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     // Shader test system reload
     KnackDiag::ShaderTestSystem::Instance().CheckReload();
 
+    static bool once = false;
+    if (!once) { once = true;
+        LOG_INFO(Lib_GnmDriver, "KNACK_MARKER_CHECK hostMarkers={} guestMarkers={}",
+                 Config::getVkHostMarkersEnabled(), Config::getVkGuestMarkersEnabled());
+    }
+
     LOG_INFO(Lib_GnmDriver,
              "KNACK_DIAG_CHECK texture_audit={} effect_diag={} any_effect={} render_diag={}",
              knack_flags.texture_audit, knack_flags.effect_diag, knack_flags.AnyEffectDiag(),
