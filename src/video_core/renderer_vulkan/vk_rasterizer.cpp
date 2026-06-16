@@ -551,9 +551,11 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         ScopeMarkerBegin(writer_label, false);
     }
 
-    // KNACK: always-on labels for suspect shaders
-    if (vs_low_marker == 0x292ecf7 || vs_low_marker == 0x292e009 || vs_low_marker == 0x292e670) {
-        ScopeMarkerBegin(fmt::format("KNACK:VS_{:08x}:FS_{:08x}", vs_low_marker, fs_low_marker), false);
+    // KNACK: label ALL draws during tornado capture
+    if (KnackDiag::TornadoCapture::Instance().IsCapturing()) {
+        const auto cmdbuf = scheduler.CommandBuffer();
+        std::string label = fmt::format("K_{:08x}_{:08x}", (u32)regs.vs_program.address, (u32)regs.ps_program.address);
+        cmdbuf.beginDebugUtilsLabelEXT(vk::DebugUtilsLabelEXT{.pLabelName = label.c_str()});
     }
 
     // KNACK render diagnostics: check for effect draws
@@ -746,9 +748,9 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     if (is_writer_draw) {
         ScopeMarkerEnd(false);
     }
-    // End suspect shader label
-    if (vs_low_marker == 0x292ecf7 || vs_low_marker == 0x292e009 || vs_low_marker == 0x292e670) {
-        ScopeMarkerEnd(false);
+    if (KnackDiag::TornadoCapture::Instance().IsCapturing()) {
+        const auto cmdbuf = scheduler.CommandBuffer();
+        cmdbuf.endDebugUtilsLabelEXT();
     }
 
     ResetBindings();
