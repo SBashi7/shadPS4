@@ -551,11 +551,9 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         ScopeMarkerBegin(writer_label, false);
     }
 
-    // KNACK: label ALL draws during tornado capture
+    // KNACK: label draws during tornado capture (safe)
     if (KnackDiag::TornadoCapture::Instance().IsCapturing()) {
-        const auto cmdbuf = scheduler.CommandBuffer();
-        std::string label = fmt::format("K_{:08x}_{:08x}", (u32)regs.vs_program.address, (u32)regs.ps_program.address);
-        cmdbuf.beginDebugUtilsLabelEXT(vk::DebugUtilsLabelEXT{.pLabelName = label.c_str()});
+        ScopeMarkerBegin(fmt::format("K_{:08x}", (u32)regs.vs_program.address), false);
     }
 
     // KNACK render diagnostics: check for effect draws
@@ -749,8 +747,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
         ScopeMarkerEnd(false);
     }
     if (KnackDiag::TornadoCapture::Instance().IsCapturing()) {
-        const auto cmdbuf = scheduler.CommandBuffer();
-        cmdbuf.endDebugUtilsLabelEXT();
+        ScopeMarkerEnd(false);
     }
 
     ResetBindings();
