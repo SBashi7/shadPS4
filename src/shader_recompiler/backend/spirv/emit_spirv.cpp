@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <filesystem>
+#include <fstream>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -465,7 +467,20 @@ std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_in
     SetupFloatMode(ctx, profile, runtime_info, main);
     PatchPhiNodes(program, ctx);
     binding.user_data += program.info.ud_mask.NumRegs();
-    return ctx.Assemble();
+    auto spv = ctx.Assemble();
+    // Dump SPIR-V for suspect particle shaders
+    u32 hash_low = (u32)program.info.pgm_hash;
+    if (hash_low == 0x292ecf9 || hash_low == 0x292ecf7 || hash_low == 0x292e009 ||
+        hash_low == 0x292e00c || hash_low == 0x29cf6b4 || hash_low == 0x29cf6b8) {
+        std::filesystem::create_directories("dumps/shaders");
+        std::string path = fmt::format("dumps/shaders/{}_{:08x}.spv",
+                                       program.info.stage == Shader::Stage::Fragment ? "fs" : "vs",
+                                       hash_low);
+        std::ofstream f(path, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(spv.data()), spv.size() * sizeof(u32));
+        f.close();
+    }
+    return spv;
 }
 
 Id EmitPhi(EmitContext& ctx, IR::Inst* inst) {
