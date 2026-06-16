@@ -542,11 +542,18 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
 
     // RenderDoc label for writer draw
     std::string writer_label;
+    u32 vs_low_marker = (u32)regs.vs_program.address;
+    u32 fs_low_marker = (u32)regs.ps_program.address;
     if (is_writer_draw) {
         writer_label = fmt::format(
             "KNACK_BAD_FRAME_WRITER_BEGIN:VS_{:08x}:FS_{:08x}:WRITES_2a8ea0000",
             (u32)wflags.writer_vs, (u32)wflags.writer_fs);
         ScopeMarkerBegin(writer_label, false);
+    }
+
+    // KNACK: always-on labels for suspect shaders
+    if (vs_low_marker == 0x292ecf7 || vs_low_marker == 0x292e009 || vs_low_marker == 0x292e670) {
+        ScopeMarkerBegin(fmt::format("KNACK:VS_{:08x}:FS_{:08x}", vs_low_marker, fs_low_marker), false);
     }
 
     // KNACK render diagnostics: check for effect draws
@@ -737,6 +744,10 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
 
     // End writer label
     if (is_writer_draw) {
+        ScopeMarkerEnd(false);
+    }
+    // End suspect shader label
+    if (vs_low_marker == 0x292ecf7 || vs_low_marker == 0x292e009 || vs_low_marker == 0x292e670) {
         ScopeMarkerEnd(false);
     }
 
