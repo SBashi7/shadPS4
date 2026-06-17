@@ -468,12 +468,9 @@ std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_in
     PatchPhiNodes(program, ctx);
     binding.user_data += program.info.ud_mask.NumRegs();
     auto spv = ctx.Assemble();
-    // Dump SPIR-V for suspect particle shaders
-    u32 hash_low = (u32)program.info.pgm_hash;
-    if (hash_low == 0x292ecf9 || hash_low == 0x292ecf7 || hash_low == 0x292e009 ||
-        hash_low == 0x292e00c || hash_low == 0x29cf6b4 || hash_low == 0x29cf6b8 ||
-        hash_low == 0x292e670 || hash_low == 0x292e673 ||
-        hash_low == 0x292ecf7 || hash_low == 0x292ecf9) {
+    // Dump ALL SPIR-V shaders
+    {
+        u32 hash_low = (u32)program.info.pgm_hash;
         std::filesystem::create_directories("C:/Users/Heavy/AppData/Roaming/shadPS4/shaders");
         std::string path = fmt::format("C:/Users/Heavy/AppData/Roaming/shadPS4/shaders/{}_{:08x}.spv",
                                        program.info.stage == Shader::Stage::Fragment ? "fs" : "vs",
@@ -482,7 +479,6 @@ std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_in
         if (f.is_open()) {
             f.write(reinterpret_cast<const char*>(spv.data()), spv.size() * sizeof(u32));
             f.close();
-            LOG_INFO(Render_Vulkan, "KNACK_SPIRV_DUMP path={} size={}", path, spv.size());
         }
     }
     return spv;
