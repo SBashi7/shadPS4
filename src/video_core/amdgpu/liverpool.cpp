@@ -262,6 +262,68 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     auto* const predication = rasterizer ? &rasterizer->GetPredication() : nullptr;
 
     const auto base_addr = reinterpret_cast<uintptr_t>(dcb.data());
+
+    // KNACK can lose PM4 packet alignment before reaching the patched flip at
+    // the tail of a DCB. In that case the GfxFlip IRQ is never generated and a
+    // later VideoOut-label wait can deadlock the graphics queue.
+    //
+    // The modern VideoOut path validates that the label is locked (value 1)
+    // when GfxFlip is signalled. Preserve that ordering here: validate the
+    // exact WriteData -> PatchedFlip sequence, transiently apply the lock value,
+    // synchronously signal the IRQ, then restore the label to 0 so an earlier
+    // WaitRegMem in the same DCB cannot self-deadlock. If normal parsing later
+    // reaches the WriteData, it will lock the label again as usual.
+    const PM4Header* pre_signaled_flip_nop = nullptr;
+    for (size_t i = 5; i + 1 < dcb.size(); ++i) {
+        const auto* nop_header = reinterpret_cast<const PM4Header*>(dcb.data() + i);
+        if (nop_header->type != 3 || nop_header->type3.opcode != PM4ItOpcode::Nop ||
+            nop_header->type3.NumWords() < 1) {
+            continue;
+        }
+
+        const size_t nop_total_dw = nop_header->type3.NumWords() + 1;
+        if (i + nop_total_dw > dcb.size()) {
+            continue;
+        }
+
+        const auto* nop = reinterpret_cast<const PM4CmdNop*>(nop_header);
+        if (nop->data_block[0] != PM4CmdNop::PayloadType::PatchedFlip) {
+            continue;
+        }
+
+        // PatchFlipRequest emits exactly five DWORDs for the lock WriteData:
+        // header, control, addr_lo, addr_hi, data[0].
+        const auto* write_header = reinterpret_cast<const PM4Header*>(dcb.data() + i - 5);
+        if (write_header->type != 3 || write_header->type3.opcode != PM4ItOpcode::WriteData ||
+            write_header->type3.NumWords() != 4) {
+            continue;
+        }
+
+        const auto* write_data = reinterpret_cast<const PM4CmdWriteData*>(write_header);
+        if (write_data->dst_sel.Value() != 5 || write_data->wr_one_addr.Value() ||
+            write_data->data[0] != 1) {
+            continue;
+        }
+
+        auto* label = write_data->Address<u64*>();
+        if (!vo_port || !vo_port->IsVoLabel(label)) {
+            continue;
+        }
+
+        // IrqController::Signal invokes the registered one-shot handler
+        // synchronously. The handler therefore observes the required lock value.
+        *label = 1;
+        Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+
+        // Leave the label available until/if normal PM4 parsing reaches the
+        // real WriteData packet.
+        *label = 0;
+        vo_port->SignalVoLabel();
+
+        pre_signaled_flip_nop = nop_header;
+        break;
+    }
+
     while (!dcb.empty()) {
         ProcessCommands();
 
@@ -307,7 +369,11 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 case PM4CmdNop::PayloadType::PatchedFlip: {
                     // There is no evidence that GPU CP drives flip events by parsing
                     // special NOP packets. For convenience lets assume that it does.
-                    Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+                    // Suppress only the exact NOP already handled by the validated
+                    // fallback above; other PatchedFlip packets remain untouched.
+                    if (header != pre_signaled_flip_nop) {
+                        Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+                    }
                     break;
                 }
                 case PM4CmdNop::PayloadType::DebugMarkerPush: {
