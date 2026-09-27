@@ -315,7 +315,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         *label = 1;
         Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
 
-        // Leave the label available until/if normal PM4 parsing reaches the
+        // Keep the label available until/if normal PM4 parsing reaches the
         // real WriteData packet.
         *label = 0;
         vo_port->SignalVoLabel();
