@@ -241,6 +241,46 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     }
 
     const auto base_addr = reinterpret_cast<uintptr_t>(dcb.data());
+
+    // Some guests patch a flip request into the tail of the DCB as a WriteData
+    // followed by a PatchedFlip NOP. If command parsing loses alignment before
+    // reaching that NOP, the VideoOut label can remain locked and a later
+    // WaitRegMem can deadlock the graphics queue. Detect only a fully validated
+    // PatchedFlip sequence targeting an actual VideoOut label and complete it
+    // before normal parsing. Suppress the matching NOP interrupt below so the
+    // fallback cannot signal the same flip twice when parsing is healthy.
+    bool patched_flip_pre_signaled = false;
+    for (size_t i = 5; i + 1 < dcb.size(); ++i) {
+        const auto* nop_header = reinterpret_cast<const PM4Header*>(dcb.data() + i);
+        if (nop_header->type != 3 || nop_header->type3.opcode != PM4ItOpcode::Nop ||
+            nop_header->type3.NumWords() < 1) {
+            continue;
+        }
+
+        const auto* nop = reinterpret_cast<const PM4CmdNop*>(nop_header);
+        if (nop->data_block[0] != PM4CmdNop::PayloadType::PatchedFlip) {
+            continue;
+        }
+
+        const auto* write_header = reinterpret_cast<const PM4Header*>(dcb.data() + i - 5);
+        if (write_header->type != 3 || write_header->type3.opcode != PM4ItOpcode::WriteData ||
+            write_header->type3.NumWords() < 4) {
+            continue;
+        }
+
+        const auto* write_data = reinterpret_cast<const PM4CmdWriteData*>(write_header);
+        auto* label = write_data->Address<u64*>();
+        if (!vo_port || !vo_port->IsVoLabel(label)) {
+            continue;
+        }
+
+        Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+        *label = 0;
+        vo_port->SignalVoLabel();
+        patched_flip_pre_signaled = true;
+        break;
+    }
+
     while (!dcb.empty()) {
         ProcessCommands();
 
@@ -273,7 +313,11 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 case PM4CmdNop::PayloadType::PatchedFlip: {
                     // There is no evidence that GPU CP drives flip events by parsing
                     // special NOP packets. For convenience lets assume that it does.
-                    Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+                    // If the validated fallback at ProcessGraphics entry already
+                    // completed this flip, do not signal it a second time.
+                    if (!patched_flip_pre_signaled) {
+                        Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxFlip);
+                    }
                     break;
                 }
                 case PM4CmdNop::PayloadType::DebugMarkerPush: {
